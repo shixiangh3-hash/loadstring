@@ -1,0 +1,1541 @@
+--[[
+    湊企鵝Hub V15 完整整合版
+    本次新增：
+    1. 遊戲：競爭者v1（oreo）
+    2. 遊戲：競爭者v2（noks）
+    3. 視覺：加強版調高 FPS
+
+    保留：無敵、時間倒轉、防擊飛、MM2、GEF、刀刃球、
+    玩家功能、傳送、視覺、動作、翻譯、物品、系統、
+    所有懸浮球智慧防誤觸拖動。
+
+    不加入：汽車、AK47、寵物、恐怖功能、連點器。
+]]--
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local CoreGui = game:GetService("CoreGui")
+local TweenService = game:GetService("TweenService")
+local UserInputService = game:GetService("UserInputService")
+local Lighting = game:GetService("Lighting")
+local Stats = game:GetService("Stats")
+local TeleportService = game:GetService("TeleportService")
+local Workspace = game:GetService("Workspace")
+local HttpService = game:GetService("HttpService")
+local LocalPlayer = Players.LocalPlayer
+local GuiParent = (typeof(gethui) == "function" and gethui()) or CoreGui
+
+local DEFAULT_WALK_SPEED = 16
+local DEFAULT_JUMP_POWER = 50
+local activeFeatures = {}
+local godMode = false
+local noclip = false
+local infJump = false
+local antiAfk = false
+local antiAfkConnection = nil
+local fullBright = false
+local espEnabled = false
+local rainbowChar = false
+local rainbowTrailObj = nil
+local fireTrailObj = nil
+local dashGuiObj = nil
+local freeCamGuiObj = nil
+local freeCamActive = false
+local freeCamRenderConn = nil
+local freeCamInputConn = nil
+local freeCamRootWasAnchored = false
+local fovActive = false
+local fovValue = 70
+local fovControlFrame = nil
+local fovSliderDragging = false
+local checkpointPos = nil
+local checkpointVisual = nil
+local originalPartColors = {}
+local originalCollisions = {}
+
+local originalSky = Lighting:FindFirstChildOfClass("Sky") and Lighting:FindFirstChildOfClass("Sky"):Clone() or nil
+local originalAtmosphere = Lighting:FindFirstChildOfClass("Atmosphere") and Lighting:FindFirstChildOfClass("Atmosphere"):Clone() or nil
+local originalLighting = {
+    Brightness = Lighting.Brightness,
+    Ambient = Lighting.Ambient,
+    OutdoorAmbient = Lighting.OutdoorAmbient,
+    GlobalShadows = Lighting.GlobalShadows,
+    ClockTime = Lighting.ClockTime,
+    FogEnd = Lighting.FogEnd,
+}
+local originalCameraMode = LocalPlayer.CameraMode
+local originalFieldOfView = Workspace.CurrentCamera.FieldOfView
+
+local function getCamera()
+    return Workspace.CurrentCamera
+end
+
+local function getCharacter()
+    return LocalPlayer.Character
+end
+
+local function getHumanoid()
+    local character = getCharacter()
+    return character and character:FindFirstChildOfClass("Humanoid")
+end
+
+local function getRoot()
+    local character = getCharacter()
+    return character and character:FindFirstChild("HumanoidRootPart")
+end
+
+local function safeDestroy(object)
+    if object and object.Parent then
+        object:Destroy()
+    end
+end
+
+local function setFeature(name, enabled)
+    if enabled then
+        activeFeatures[name] = true
+    else
+        activeFeatures[name] = nil
+    end
+end
+
+local function runExternalScript(url)
+    task.spawn(function()
+        local ok, err = pcall(function()
+            local source = game:HttpGet(url)
+            local scriptFunction = loadstring(source)
+            if type(scriptFunction) ~= "function" then
+                error("loadstring 無法編譯外部腳本")
+            end
+            scriptFunction()
+        end)
+        if not ok then
+            warn("湊企鵝Hub：外部功能載入失敗：", err)
+        end
+    end)
+end
+
+-- 無敵專用載入器：下載、編譯、執行分開處理，錯誤會顯示在輸出。
+local function runInvincibleScript()
+    local url = "https://raw.githubusercontent.com/mascaracathub/Test-Script/refs/heads/main/obfuscated_script-1765900058766.lua.txt"
+
+    local downloaded, sourceOrError = pcall(function()
+        return game:HttpGet(url)
+    end)
+    if not downloaded or type(sourceOrError) ~= "string" or sourceOrError == "" then
+        warn("湊企鵝Hub：無敵腳本下載失敗：", sourceOrError)
+        return
+    end
+
+    local compiled, functionOrError = pcall(function()
+        return loadstring(sourceOrError)
+    end)
+    if not compiled or type(functionOrError) ~= "function" then
+        warn("湊企鵝Hub：無敵腳本編譯失敗：", functionOrError)
+        return
+    end
+
+    local executed, executionError = pcall(function()
+        return functionOrError()
+    end)
+    if not executed then
+        warn("湊企鵝Hub：無敵腳本執行失敗：", executionError)
+    end
+end
+
+local function createScreenGui(name)
+    local old = GuiParent:FindFirstChild(name)
+    if old then
+        old:Destroy()
+    end
+    local gui = Instance.new("ScreenGui")
+    gui.Name = name
+    gui.ResetOnSpawn = false
+    gui.IgnoreGuiInset = true
+    gui.Parent = GuiParent
+    return gui
+end
+
+local function addCorner(object, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 10)
+    corner.Parent = object
+    return corner
+end
+
+local function addStroke(object, color, thickness)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = color or Color3.new(1, 1, 1)
+    stroke.Thickness = thickness or 1
+    stroke.Transparency = 0.2
+    stroke.Parent = object
+    return stroke
+end
+
+-- 所有懸浮球統一防誤觸：
+-- 必須從該物件開始、同一根手指／同一次滑鼠按壓，並移動超過 32 像素才拖動。
+local function makeSmartDraggable(object, threshold)
+    threshold = threshold or 32
+    local activeTouch = nil
+    local mousePressed = false
+    local dragStart = nil
+    local startPosition = nil
+    local didMove = false
+    object.Active = true
+
+    object.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.Touch then
+            activeTouch = input
+            mousePressed = false
+            dragStart = input.Position
+            startPosition = object.Position
+            didMove = false
+        elseif input.UserInputType == Enum.UserInputType.MouseButton1 then
+            activeTouch = nil
+            mousePressed = true
+            dragStart = input.Position
+            startPosition = object.Position
+            didMove = false
+        end
+    end)
+
+    UserInputService.InputChanged:Connect(function(input)
+        local ownerTouch = activeTouch ~= nil
+            and input == activeTouch
+            and input.UserInputType == Enum.UserInputType.Touch
+        local ownerMouse = mousePressed
+            and input.UserInputType == Enum.UserInputType.MouseMovement
+
+        if not ownerTouch and not ownerMouse then
+            return
+        end
+        if not dragStart or not startPosition then
+            return
+        end
+
+        local delta = input.Position - dragStart
+        if delta.Magnitude >= threshold then
+            didMove = true
+            object.Position = UDim2.new(
+                startPosition.X.Scale,
+                startPosition.X.Offset + delta.X,
+                startPosition.Y.Scale,
+                startPosition.Y.Offset + delta.Y
+            )
+        end
+    end)
+
+    UserInputService.InputEnded:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            mousePressed = false
+        elseif activeTouch ~= nil and input == activeTouch then
+            activeTouch = nil
+        end
+    end)
+
+    return function()
+        local moved = didMove
+        didMove = false
+        return moved
+    end
+end
+
+local function makeButton(parent, y, text, callback)
+    local button = Instance.new("TextButton")
+    button.Position = UDim2.new(0, 20, 0, y)
+    button.Size = UDim2.new(0, 280, 0, 35)
+    button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+    button.BackgroundTransparency = 0.25
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Text = text
+    button.Font = Enum.Font.SourceSansBold
+    button.TextSize = 14
+    button.TextWrapped = true
+    button.Parent = parent
+    addCorner(button, 10)
+    button.MouseButton1Click:Connect(callback)
+    return button
+end
+
+local function makeTextBox(parent, y, placeholder, callback)
+    local box = Instance.new("TextBox")
+    box.Position = UDim2.new(0, 20, 0, y)
+    box.Size = UDim2.new(0, 280, 0, 30)
+    box.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
+    box.BackgroundTransparency = 0.35
+    box.PlaceholderText = placeholder
+    box.PlaceholderColor3 = Color3.fromRGB(180, 180, 180)
+    box.Text = ""
+    box.TextColor3 = Color3.new(1, 1, 1)
+    box.Font = Enum.Font.SourceSans
+    box.TextSize = 14
+    box.ClearTextOnFocus = false
+    box.Parent = parent
+    addCorner(box, 8)
+    box.FocusLost:Connect(function()
+        callback(box.Text)
+    end)
+    return box
+end
+
+local function createPage(parent)
+    local page = Instance.new("ScrollingFrame")
+    page.Size = UDim2.new(1, 0, 1, 0)
+    page.BackgroundTransparency = 1
+    page.BorderSizePixel = 0
+    page.CanvasSize = UDim2.new(0, 0, 0, 1200)
+    page.ScrollBarThickness = 3
+    page.ScrollBarImageColor3 = Color3.fromRGB(220, 220, 255)
+    page.Visible = false
+    page.Parent = parent
+    return page
+end
+
+-- 開場動畫
+local introGui = createScreenGui("PenguinHubIntroV15")
+local introText = Instance.new("TextLabel")
+introText.Size = UDim2.new(1, 0, 1, 0)
+introText.BackgroundTransparency = 1
+introText.Text = "湊企鵝Hub\nV15 穩定整合版"
+introText.TextColor3 = Color3.fromRGB(255, 220, 0)
+introText.TextSize = 48
+introText.Font = Enum.Font.SourceSansBold
+introText.Parent = introGui
+task.delay(2, function()
+    TweenService:Create(introText, TweenInfo.new(1.25), {TextTransparency = 1}):Play()
+    task.wait(1.3)
+    safeDestroy(introGui)
+end)
+
+-- 右上角 FPS／Ping 儀表板
+local dashboardGui = createScreenGui("PenguinHubDashboardV15")
+local dashboard = Instance.new("Frame")
+dashboard.Size = UDim2.new(0, 190, 0, 105)
+dashboard.Position = UDim2.new(1, -205, 0, 20)
+dashboard.BackgroundColor3 = Color3.fromRGB(18, 18, 26)
+dashboard.BackgroundTransparency = 0.28
+dashboard.Parent = dashboardGui
+addCorner(dashboard, 12)
+addStroke(dashboard, Color3.fromRGB(220, 220, 255), 1)
+makeSmartDraggable(dashboard)
+
+local fpsLabel = Instance.new("TextLabel")
+fpsLabel.Size = UDim2.new(1, -12, 0, 20)
+fpsLabel.Position = UDim2.new(0, 6, 0, 6)
+fpsLabel.BackgroundTransparency = 1
+fpsLabel.TextColor3 = Color3.new(1, 1, 1)
+fpsLabel.TextXAlignment = Enum.TextXAlignment.Left
+fpsLabel.Font = Enum.Font.Code
+fpsLabel.TextSize = 14
+fpsLabel.Parent = dashboard
+
+local pingLabel = fpsLabel:Clone()
+pingLabel.Position = UDim2.new(0, 6, 0, 27)
+pingLabel.Parent = dashboard
+
+local activeLabel = Instance.new("TextLabel")
+activeLabel.Size = UDim2.new(1, -12, 0, 52)
+activeLabel.Position = UDim2.new(0, 6, 0, 49)
+activeLabel.BackgroundTransparency = 1
+activeLabel.TextColor3 = Color3.fromRGB(120, 255, 170)
+activeLabel.TextXAlignment = Enum.TextXAlignment.Left
+activeLabel.TextYAlignment = Enum.TextYAlignment.Top
+activeLabel.TextWrapped = true
+activeLabel.Font = Enum.Font.SourceSans
+activeLabel.TextSize = 12
+activeLabel.Parent = dashboard
+
+RunService.RenderStepped:Connect(function(dt)
+    fpsLabel.Text = "FPS: " .. tostring(math.floor(1 / math.max(dt, 0.001)))
+    local ping = 0
+    pcall(function()
+        ping = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+    end)
+    pingLabel.Text = "Ping: " .. tostring(ping) .. " ms"
+    local names = {}
+    for name in pairs(activeFeatures) do
+        table.insert(names, name)
+    end
+    activeLabel.Text = #names > 0 and ("使用中：" .. table.concat(names, "、")) or "無使用中功能"
+end)
+
+-- 主介面
+local mainGui = createScreenGui("PenguinHubMainV15")
+local mainBall = Instance.new("TextButton")
+mainBall.Size = UDim2.new(0, 60, 0, 60)
+mainBall.Position = UDim2.new(0, 20, 0, 200)
+mainBall.BackgroundColor3 = Color3.fromRGB(255, 220, 0)
+mainBall.Text = "🐧"
+mainBall.TextSize = 34
+mainBall.Parent = mainGui
+addCorner(mainBall, 99)
+addStroke(mainBall, Color3.new(1, 1, 1), 1)
+local mainBallMoved = makeSmartDraggable(mainBall)
+
+local panel = Instance.new("Frame")
+panel.Size = UDim2.new(0, 320, 0, 480)
+panel.Position = UDim2.new(0.5, -160, 0.5, -240)
+panel.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+panel.BackgroundTransparency = 0.18
+panel.Visible = false
+panel.ClipsDescendants = true
+panel.Parent = mainGui
+addCorner(panel, 20)
+addStroke(panel, Color3.fromRGB(235, 235, 255), 1)
+makeSmartDraggable(panel)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, 0, 0, 45)
+title.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+title.BackgroundTransparency = 0.35
+title.Text = "湊企鵝Hub - V15"
+title.TextColor3 = Color3.new(1, 1, 1)
+title.Font = Enum.Font.SourceSansBold
+title.TextSize = 20
+title.Parent = panel
+addCorner(title, 20)
+task.spawn(function()
+    while title.Parent do
+        title.TextColor3 = Color3.fromHSV((tick() % 5) / 5, 0.9, 1)
+        task.wait(0.08)
+    end
+end)
+
+mainBall.MouseButton1Click:Connect(function()
+    if mainBallMoved() then
+        return
+    end
+    if panel.Visible then
+        local closeTween = TweenService:Create(panel, TweenInfo.new(0.25), {
+            Size = UDim2.new(0, 0, 0, 0),
+            Position = UDim2.new(0.5, 0, 0.5, 0),
+        })
+        closeTween:Play()
+        closeTween.Completed:Connect(function()
+            panel.Visible = false
+        end)
+    else
+        panel.Visible = true
+        panel.Size = UDim2.new(0, 0, 0, 0)
+        panel.Position = UDim2.new(0.5, 0, 0.5, 0)
+        TweenService:Create(panel, TweenInfo.new(0.35, Enum.EasingStyle.Back), {
+            Size = UDim2.new(0, 320, 0, 480),
+            Position = UDim2.new(0.5, -160, 0.5, -240),
+        }):Play()
+    end
+end)
+
+local tabContainer = Instance.new("ScrollingFrame")
+tabContainer.Size = UDim2.new(1, -20, 0, 40)
+tabContainer.Position = UDim2.new(0, 10, 0, 50)
+tabContainer.BackgroundTransparency = 1
+tabContainer.BorderSizePixel = 0
+tabContainer.CanvasSize = UDim2.new(0, 742, 0, 0)
+tabContainer.ScrollingDirection = Enum.ScrollingDirection.X
+tabContainer.ScrollBarThickness = 0
+tabContainer.Parent = panel
+
+local contentContainer = Instance.new("Frame")
+contentContainer.Size = UDim2.new(1, 0, 1, -100)
+contentContainer.Position = UDim2.new(0, 0, 0, 100)
+contentContainer.BackgroundTransparency = 1
+contentContainer.Parent = panel
+
+local pagePlayer = createPage(contentContainer)
+local pageTeleport = createPage(contentContainer)
+local pageVisual = createPage(contentContainer)
+local pageAction = createPage(contentContainer)
+local pageTranslate = createPage(contentContainer)
+local pageItems = createPage(contentContainer)
+local pageSystem = createPage(contentContainer)
+local pageGames = createPage(contentContainer)
+pagePlayer.Visible = true
+
+local function makeTab(position, text, icon, page)
+    local tab = Instance.new("TextButton")
+    tab.Size = UDim2.new(0, 82, 1, -5)
+    tab.Position = position
+    tab.BackgroundColor3 = Color3.fromRGB(50, 50, 65)
+    tab.BackgroundTransparency = 0.25
+    tab.Text = icon .. " " .. text
+    tab.TextColor3 = Color3.new(1, 1, 1)
+    tab.Font = Enum.Font.SourceSansBold
+    tab.TextSize = 11
+    tab.Parent = tabContainer
+    addCorner(tab, 8)
+    tab.MouseButton1Click:Connect(function()
+        for _, object in ipairs(contentContainer:GetChildren()) do
+            if object:IsA("ScrollingFrame") then
+                object.Visible = false
+            end
+        end
+        page.Visible = true
+    end)
+end
+
+makeTab(UDim2.new(0, 0, 0, 0), "玩家", "🏃", pagePlayer)
+makeTab(UDim2.new(0, 87, 0, 0), "傳送", "🌀", pageTeleport)
+makeTab(UDim2.new(0, 174, 0, 0), "視覺", "👁", pageVisual)
+makeTab(UDim2.new(0, 261, 0, 0), "動作", "🎬", pageAction)
+makeTab(UDim2.new(0, 348, 0, 0), "翻譯", "🌐", pageTranslate)
+makeTab(UDim2.new(0, 435, 0, 0), "物品", "🎒", pageItems)
+makeTab(UDim2.new(0, 522, 0, 0), "系統", "⚙", pageSystem)
+makeTab(UDim2.new(0, 609, 0, 0), "遊戲", "🎮", pageGames)
+
+-- 玩家分頁
+makeTextBox(pagePlayer, 10, "調整速度（預設 16）", function(value)
+    local humanoid = getHumanoid()
+    local number = tonumber(value)
+    if humanoid and number then
+        humanoid.WalkSpeed = math.clamp(number, 0, 250)
+    end
+end)
+
+makeTextBox(pagePlayer, 50, "調整跳躍高度（預設 50）", function(value)
+    local humanoid = getHumanoid()
+    local number = tonumber(value)
+    if humanoid and number then
+        humanoid.UseJumpPower = true
+        humanoid.JumpPower = math.clamp(number, 0, 250)
+    end
+end)
+
+makeButton(pagePlayer, 90, "無敵功能（God Mode）", function()
+    task.spawn(runInvincibleScript)
+end)
+
+makeButton(pagePlayer, 135, "專業飛行（Fly V3）", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-Fly-V3-X-132770")
+end)
+
+makeButton(pagePlayer, 180, "專業擊飛（Dropkick）", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-THE-REAL-dropkick-177199")
+end)
+
+makeButton(pagePlayer, 225, "隱形功能（Invisible）", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-Awesome-Invisible-man-133400")
+end)
+
+makeButton(pagePlayer, 270, "R15 轉 R6 腳本", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-R15-to-R6-61575")
+end)
+
+makeButton(pagePlayer, 315, "追逐（FE Husk）", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-FE-Husk-236341")
+end)
+
+makeButton(pagePlayer, 360, "變成貓（Cat Morph）", function()
+    runExternalScript("https://pastebin.com/raw/Y1MkBRn3")
+end)
+
+makeButton(pagePlayer, 405, "臉部表情（Mood）", function()
+    runExternalScript("https://raw.githubusercontent.com/Gazer-Ha/Gaze-stuff/refs/heads/main/Mood")
+end)
+
+makeButton(pagePlayer, 450, "模仿（Mimic）", function()
+    runExternalScript("https://raw.githubusercontent.com/ZyroOnTop/CopyMimicScript/refs/heads/main/byZyro")
+end)
+
+makeButton(pagePlayer, 495, "替身（Stand）", function()
+    runExternalScript("https://pastefy.app/MKQhZyAn/raw")
+end)
+
+local function restoreCharacterColors()
+    for part, color in pairs(originalPartColors) do
+        if part and part.Parent then
+            pcall(function()
+                part.Color = color
+            end)
+        end
+    end
+    table.clear(originalPartColors)
+end
+
+makeButton(pagePlayer, 540, "彩虹人模式（Rainbow）ON / OFF", function()
+    rainbowChar = not rainbowChar
+    setFeature("彩虹人", rainbowChar)
+    if not rainbowChar then
+        restoreCharacterColors()
+        return
+    end
+    task.spawn(function()
+        while rainbowChar do
+            local character = getCharacter()
+            if character then
+                local color = Color3.fromHSV((tick() % 5) / 5, 1, 1)
+                for _, part in ipairs(character:GetDescendants()) do
+                    if part:IsA("BasePart") and part.Name ~= "HumanoidRootPart" then
+                        if originalPartColors[part] == nil then
+                            originalPartColors[part] = part.Color
+                        end
+                        part.Color = color
+                    end
+                end
+            end
+            task.wait(0.1)
+        end
+    end)
+end)
+
+local function clearRainbowTrail()
+    safeDestroy(rainbowTrailObj)
+    rainbowTrailObj = nil
+    local root = getRoot()
+    if root then
+        safeDestroy(root:FindFirstChild("PenguinRainbowAttachment0"))
+        safeDestroy(root:FindFirstChild("PenguinRainbowAttachment1"))
+    end
+    setFeature("彩虹軌跡", false)
+end
+
+makeButton(pagePlayer, 585, "彩虹軌跡（Rainbow Trail）ON / OFF", function()
+    if rainbowTrailObj then
+        clearRainbowTrail()
+        return
+    end
+    local root = getRoot()
+    if not root then
+        return
+    end
+    local a0 = Instance.new("Attachment")
+    a0.Name = "PenguinRainbowAttachment0"
+    a0.Position = Vector3.new(0, 1, 0)
+    a0.Parent = root
+    local a1 = Instance.new("Attachment")
+    a1.Name = "PenguinRainbowAttachment1"
+    a1.Position = Vector3.new(0, -1, 0)
+    a1.Parent = root
+    local trail = Instance.new("Trail")
+    trail.Name = "PenguinRainbowTrail"
+    trail.Attachment0 = a0
+    trail.Attachment1 = a1
+    trail.Lifetime = 0.5
+    trail.MinLength = 0.1
+    trail.Parent = root
+    rainbowTrailObj = trail
+    setFeature("彩虹軌跡", true)
+    task.spawn(function()
+        while rainbowTrailObj == trail and trail.Parent do
+            trail.Color = ColorSequence.new(Color3.fromHSV((tick() % 5) / 5, 1, 1))
+            task.wait(0.1)
+        end
+    end)
+end)
+
+local function clearFireTrail()
+    safeDestroy(fireTrailObj)
+    fireTrailObj = nil
+    local root = getRoot()
+    if root then
+        safeDestroy(root:FindFirstChild("PenguinFireAttachment0"))
+        safeDestroy(root:FindFirstChild("PenguinFireAttachment1"))
+    end
+    setFeature("火焰軌跡", false)
+end
+
+makeButton(pagePlayer, 630, "火焰軌跡（Fire Trail）ON / OFF", function()
+    if fireTrailObj then
+        clearFireTrail()
+        return
+    end
+    local root = getRoot()
+    if not root then
+        return
+    end
+    local a0 = Instance.new("Attachment")
+    a0.Name = "PenguinFireAttachment0"
+    a0.Position = Vector3.new(0, 1, 0)
+    a0.Parent = root
+    local a1 = Instance.new("Attachment")
+    a1.Name = "PenguinFireAttachment1"
+    a1.Position = Vector3.new(0, -1, 0)
+    a1.Parent = root
+    local trail = Instance.new("Trail")
+    trail.Name = "PenguinFireTrail"
+    trail.Attachment0 = a0
+    trail.Attachment1 = a1
+    trail.Color = ColorSequence.new(Color3.fromRGB(255, 70, 0), Color3.fromRGB(255, 230, 0))
+    trail.Lifetime = 0.4
+    trail.MinLength = 0.1
+    trail.Parent = root
+    fireTrailObj = trail
+    setFeature("火焰軌跡", true)
+end)
+
+makeButton(pagePlayer, 675, "開啟 Dash 衝刺工具（右側按鈕）", function()
+    if dashGuiObj then
+        safeDestroy(dashGuiObj)
+        dashGuiObj = nil
+        setFeature("Dash", false)
+        return
+    end
+    local gui = createScreenGui("PenguinDashGuiV15")
+    dashGuiObj = gui
+    local dashButton = Instance.new("TextButton")
+    dashButton.Size = UDim2.new(0, 70, 0, 70)
+    dashButton.Position = UDim2.new(1, -90, 0.6, 0)
+    dashButton.BackgroundColor3 = Color3.fromRGB(0, 170, 255)
+    dashButton.BackgroundTransparency = 0.25
+    dashButton.Text = "DASH"
+    dashButton.TextColor3 = Color3.new(1, 1, 1)
+    dashButton.Font = Enum.Font.SourceSansBold
+    dashButton.TextSize = 16
+    dashButton.Parent = gui
+    addCorner(dashButton, 99)
+    addStroke(dashButton, Color3.new(1, 1, 1), 1)
+    local dashMoved = makeSmartDraggable(dashButton)
+    setFeature("Dash", true)
+
+    dashButton.MouseButton1Click:Connect(function()
+        if dashMoved() then
+            return
+        end
+        local root = getRoot()
+        if not root then
+            return
+        end
+        local a0 = Instance.new("Attachment")
+        a0.Position = Vector3.new(0, 1, 0)
+        a0.Parent = root
+        local a1 = Instance.new("Attachment")
+        a1.Position = Vector3.new(0, -1, 0)
+        a1.Parent = root
+        local trail = Instance.new("Trail")
+        trail.Attachment0 = a0
+        trail.Attachment1 = a1
+        trail.Color = ColorSequence.new(Color3.new(1, 1, 1))
+        trail.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.15),
+            NumberSequenceKeypoint.new(1, 1),
+        })
+        trail.Lifetime = 0.2
+        trail.Parent = root
+        root.CFrame = root.CFrame + root.CFrame.LookVector * 18
+        task.delay(0.25, function()
+            safeDestroy(trail)
+            safeDestroy(a0)
+            safeDestroy(a1)
+        end)
+    end)
+end)
+
+makeButton(pagePlayer, 720, "穿牆（Noclip）ON / OFF", function()
+    noclip = not noclip
+    setFeature("穿牆", noclip)
+    if not noclip then
+        restoreCollisions()
+    end
+end)
+
+RunService.Stepped:Connect(function()
+    if not noclip then
+        return
+    end
+    local character = getCharacter()
+    if not character then
+        return
+    end
+    for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") then
+            if originalCollisions[part] == nil then
+                originalCollisions[part] = part.CanCollide
+            end
+            part.CanCollide = false
+        end
+    end
+end)
+
+makeButton(pagePlayer, 765, "無限跳（InfJump）ON / OFF", function()
+    infJump = not infJump
+    setFeature("無限跳", infJump)
+end)
+
+UserInputService.JumpRequest:Connect(function()
+    if infJump then
+        local humanoid = getHumanoid()
+        if humanoid then
+            humanoid:ChangeState(Enum.HumanoidStateType.Jumping)
+        end
+    end
+end)
+
+makeButton(pagePlayer, 810, "防掛機（Anti-AFK）ON / OFF", function()
+    antiAfk = not antiAfk
+    setFeature("防掛機", antiAfk)
+    if not antiAfkConnection then
+        local virtualUser = game:GetService("VirtualUser")
+        antiAfkConnection = LocalPlayer.Idled:Connect(function()
+            if antiAfk then
+                virtualUser:CaptureController()
+                virtualUser:ClickButton2(Vector2.new())
+            end
+        end)
+    end
+end)
+
+-- 存檔點：設定／清除／重新設定
+local checkpointGui = createScreenGui("PenguinCheckpointGuiV15")
+local checkpointBall = Instance.new("TextButton")
+checkpointBall.Size = UDim2.new(0, 42, 0, 42)
+checkpointBall.Position = UDim2.new(1, -60, 0.5, 0)
+checkpointBall.BackgroundColor3 = Color3.fromRGB(235, 45, 45)
+checkpointBall.Text = "S"
+checkpointBall.TextColor3 = Color3.new(1, 1, 1)
+checkpointBall.Font = Enum.Font.SourceSansBold
+checkpointBall.TextSize = 20
+checkpointBall.Visible = false
+checkpointBall.Parent = checkpointGui
+addCorner(checkpointBall, 99)
+addStroke(checkpointBall, Color3.new(1, 1, 1), 1)
+local checkpointBallMoved = makeSmartDraggable(checkpointBall)
+
+local function clearCheckpoint()
+    checkpointPos = nil
+    safeDestroy(checkpointVisual)
+    checkpointVisual = nil
+    checkpointBall.Text = "S"
+    setFeature("存檔點", false)
+end
+
+local function makeCheckpointVisual(rootCFrame)
+    local marker = Instance.new("Part")
+    marker.Name = "PenguinCheckpointVisual"
+    marker.Size = Vector3.new(4, 0.12, 4)
+    marker.CFrame = rootCFrame * CFrame.new(0, -3, 0)
+    marker.Anchored = true
+    marker.CanCollide = false
+    marker.Material = Enum.Material.Neon
+    marker.Color = Color3.fromRGB(255, 230, 0)
+    marker.Transparency = 0.25
+    marker.Parent = Workspace
+
+    local billboard = Instance.new("BillboardGui")
+    billboard.Name = "PenguinCheckpointArrow"
+    billboard.Size = UDim2.new(0, 90, 0, 90)
+    billboard.StudsOffset = Vector3.new(0, 2.2, 0)
+    billboard.AlwaysOnTop = true
+    billboard.Adornee = marker
+    billboard.Parent = marker
+
+    local arrow = Instance.new("TextLabel")
+    arrow.Size = UDim2.new(1, 0, 1, 0)
+    arrow.BackgroundTransparency = 1
+    arrow.Text = "▼\n存檔點"
+    arrow.TextColor3 = Color3.fromRGB(255, 230, 0)
+    arrow.TextStrokeTransparency = 0.25
+    arrow.TextStrokeColor3 = Color3.fromRGB(50, 45, 0)
+    arrow.Font = Enum.Font.SourceSansBold
+    arrow.TextSize = 28
+    arrow.Parent = billboard
+    return marker
+end
+
+checkpointBall.MouseButton1Click:Connect(function()
+    if checkpointBallMoved() then
+        return
+    end
+    if checkpointPos then
+        clearCheckpoint()
+        return
+    end
+    local root = getRoot()
+    if not root then
+        return
+    end
+    checkpointPos = root.CFrame
+    checkpointVisual = makeCheckpointVisual(checkpointPos)
+    checkpointBall.Text = "✓"
+    setFeature("存檔點", true)
+end)
+
+LocalPlayer.CharacterAdded:Connect(function(character)
+    if checkpointPos then
+        local root = character:WaitForChild("HumanoidRootPart", 6)
+        if root then
+            task.wait(0.45)
+            root.CFrame = checkpointPos
+        end
+    end
+end)
+
+makeButton(pagePlayer, 855, "開啟／關閉存檔點工具（小紅球）", function()
+    checkpointBall.Visible = not checkpointBall.Visible
+end)
+
+makeButton(pagePlayer, 900, "防擊飛（Ultra Instinct）", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-Ultra-instinct-64550")
+end)
+
+makeButton(pagePlayer, 945, "時間倒轉（Flashback）", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-Flashback-Script-26745")
+end)
+
+-- 傳送分頁
+makeButton(pageTeleport, 10, "一鍵快速換服（Server Hop）", function()
+    task.spawn(function()
+        pcall(function()
+            local url = "https://games.roblox.com/v1/games/" .. tostring(game.PlaceId) .. "/servers/Public?sortOrder=Asc&limit=100"
+            local response = HttpService:JSONDecode(game:HttpGet(url))
+            for _, server in ipairs(response.data or {}) do
+                if server.playing < server.maxPlayers and server.id ~= game.JobId then
+                    TeleportService:TeleportToPlaceInstance(game.PlaceId, server.id, LocalPlayer)
+                    break
+                end
+            end
+        end)
+    end)
+end)
+
+local selectedPlayer = nil
+local playerListFrame = Instance.new("Frame")
+playerListFrame.Size = UDim2.new(0, 280, 0, 150)
+playerListFrame.Position = UDim2.new(0, 20, 0, 55)
+playerListFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+playerListFrame.BackgroundTransparency = 0.35
+playerListFrame.Parent = pageTeleport
+addCorner(playerListFrame, 10)
+
+local playerScroll = Instance.new("ScrollingFrame")
+playerScroll.Size = UDim2.new(1, -8, 1, -8)
+playerScroll.Position = UDim2.new(0, 4, 0, 4)
+playerScroll.BackgroundTransparency = 1
+playerScroll.BorderSizePixel = 0
+playerScroll.ScrollBarThickness = 3
+playerScroll.Parent = playerListFrame
+
+local function refreshPlayers()
+    for _, child in ipairs(playerScroll:GetChildren()) do
+        if child:IsA("TextButton") then
+            child:Destroy()
+        end
+    end
+    local y = 0
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer then
+            local button = Instance.new("TextButton")
+            button.Size = UDim2.new(1, -6, 0, 26)
+            button.Position = UDim2.new(0, 3, 0, y)
+            button.BackgroundColor3 = Color3.fromRGB(65, 65, 80)
+            button.BackgroundTransparency = 0.2
+            button.TextColor3 = Color3.new(1, 1, 1)
+            button.Text = player.Name
+            button.Font = Enum.Font.SourceSans
+            button.TextSize = 14
+            button.Parent = playerScroll
+            addCorner(button, 7)
+            button.MouseButton1Click:Connect(function()
+                selectedPlayer = player
+                for _, other in ipairs(playerScroll:GetChildren()) do
+                    if other:IsA("TextButton") then
+                        other.BackgroundColor3 = Color3.fromRGB(65, 65, 80)
+                    end
+                end
+                button.BackgroundColor3 = Color3.fromRGB(0, 135, 230)
+            end)
+            y = y + 30
+        end
+    end
+    playerScroll.CanvasSize = UDim2.new(0, 0, 0, math.max(y, 140))
+end
+
+makeButton(pageTeleport, 215, "刷新玩家列表", refreshPlayers)
+makeButton(pageTeleport, 260, "傳送到選取玩家", function()
+    local root = getRoot()
+    if root and selectedPlayer and selectedPlayer.Character then
+        local targetRoot = selectedPlayer.Character:FindFirstChild("HumanoidRootPart")
+        if targetRoot then
+            root.CFrame = targetRoot.CFrame * CFrame.new(0, 0, 3)
+        end
+    end
+end)
+refreshPlayers()
+
+-- 視覺分頁
+local function refreshESP()
+    for _, player in ipairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character then
+            local highlight = player.Character:FindFirstChild("PenguinESPHighlight")
+            if espEnabled and not highlight then
+                highlight = Instance.new("Highlight")
+                highlight.Name = "PenguinESPHighlight"
+                highlight.FillColor = Color3.fromRGB(255, 70, 70)
+                highlight.OutlineColor = Color3.fromRGB(255, 255, 255)
+                highlight.FillTransparency = 0.55
+                highlight.Parent = player.Character
+            elseif not espEnabled and highlight then
+                highlight:Destroy()
+            end
+        end
+    end
+end
+
+makeButton(pageVisual, 10, "玩家 ESP ON / OFF", function()
+    espEnabled = not espEnabled
+    setFeature("ESP", espEnabled)
+    refreshESP()
+end)
+
+Players.PlayerAdded:Connect(function(player)
+    player.CharacterAdded:Connect(function()
+        if espEnabled then
+            task.wait(0.5)
+            refreshESP()
+        end
+    end)
+end)
+
+makeButton(pageVisual, 55, "高畫質 + 培根光影", function()
+    runExternalScript("https://raw.githubusercontent.com/QAQ0722/BaconHub-V3.0-/refs/heads/main/培根光影.lua")
+end)
+
+makeButton(pageVisual, 100, "強力提高 FPS（無陰影）", function()
+    task.spawn(function()
+        Lighting.GlobalShadows = false
+        for _, object in ipairs(game:GetDescendants()) do
+            pcall(function()
+                if object:IsA("BasePart") then
+                    object.Material = Enum.Material.SmoothPlastic
+                    object.CastShadow = false
+                end
+            end)
+        end
+    end)
+end)
+
+-- 新增：舊版提高 FPS 按鈕的下面
+makeButton(pageVisual, 145, "加強版調高 FPS", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-Fps-Booster-V3-57612")
+end)
+
+local function restoreLighting()
+    Lighting.Brightness = originalLighting.Brightness
+    Lighting.Ambient = originalLighting.Ambient
+    Lighting.OutdoorAmbient = originalLighting.OutdoorAmbient
+    Lighting.GlobalShadows = originalLighting.GlobalShadows
+    Lighting.ClockTime = originalLighting.ClockTime
+    Lighting.FogEnd = originalLighting.FogEnd
+end
+
+makeButton(pageVisual, 190, "全亮模式（Full Bright）ON / OFF", function()
+    fullBright = not fullBright
+    setFeature("全亮", fullBright)
+    if fullBright then
+        Lighting.Ambient = Color3.new(1, 1, 1)
+        Lighting.OutdoorAmbient = Color3.new(1, 1, 1)
+        Lighting.Brightness = 2
+        Lighting.GlobalShadows = false
+    else
+        restoreLighting()
+    end
+end)
+
+-- 自由視角
+local function stopFreeCam()
+    freeCamActive = false
+    setFeature("自由視角", false)
+    if freeCamRenderConn then
+        freeCamRenderConn:Disconnect()
+        freeCamRenderConn = nil
+    end
+    if freeCamInputConn then
+        freeCamInputConn:Disconnect()
+        freeCamInputConn = nil
+    end
+    getCamera().CameraType = Enum.CameraType.Custom
+    local root = getRoot()
+    if root then
+        root.Anchored = freeCamRootWasAnchored
+    end
+end
+
+makeButton(pageVisual, 235, "開啟／關閉自由視角工具（右側相機）", function()
+    if freeCamGuiObj then
+        stopFreeCam()
+        safeDestroy(freeCamGuiObj)
+        freeCamGuiObj = nil
+        return
+    end
+
+    local gui = createScreenGui("PenguinFreeCamGuiV15")
+    freeCamGuiObj = gui
+    local cameraButton = Instance.new("TextButton")
+    cameraButton.Size = UDim2.new(0, 65, 0, 65)
+    cameraButton.Position = UDim2.new(1, -85, 0.4, 0)
+    cameraButton.BackgroundColor3 = Color3.fromRGB(255, 110, 0)
+    cameraButton.BackgroundTransparency = 0.2
+    cameraButton.Text = "📷"
+    cameraButton.TextSize = 30
+    cameraButton.Parent = gui
+    addCorner(cameraButton, 99)
+    addStroke(cameraButton, Color3.new(1, 1, 1), 1)
+    local cameraMoved = makeSmartDraggable(cameraButton)
+
+    cameraButton.MouseButton1Click:Connect(function()
+        if cameraMoved() then
+            return
+        end
+        if freeCamActive then
+            stopFreeCam()
+            cameraButton.BackgroundColor3 = Color3.fromRGB(255, 110, 0)
+            return
+        end
+
+        if fovActive then
+            fovActive = false
+            LocalPlayer.CameraMode = originalCameraMode
+            getCamera().FieldOfView = originalFieldOfView
+            if fovControlFrame then
+                fovControlFrame.Visible = false
+            end
+            setFeature("FOV", false)
+        end
+
+        local character = getCharacter()
+        local root = getRoot()
+        local camera = getCamera()
+        if not character or not root then
+            return
+        end
+
+        freeCamActive = true
+        setFeature("自由視角", true)
+        cameraButton.BackgroundColor3 = Color3.fromRGB(0, 215, 100)
+        freeCamRootWasAnchored = root.Anchored
+        root.Anchored = true
+        camera.CameraType = Enum.CameraType.Scriptable
+
+        local startCFrame = camera.CFrame
+        local head = character:FindFirstChild("Head")
+        if head then
+            startCFrame = CFrame.new(head.Position + Vector3.new(0, 0.45, 0)) * (camera.CFrame - camera.CFrame.Position)
+        end
+        local cameraPosition = startCFrame.Position
+        local pitch, yaw = startCFrame:ToOrientation()
+
+        freeCamInputConn = UserInputService.InputChanged:Connect(function(input)
+            if not freeCamActive then
+                return
+            end
+            if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+                pitch = math.clamp(pitch - input.Delta.Y * 0.003, -1.5, 1.5)
+                yaw = yaw - input.Delta.X * 0.003
+            end
+        end)
+
+        freeCamRenderConn = RunService.RenderStepped:Connect(function(dt)
+            local humanoid = getHumanoid()
+            local speed = humanoid and humanoid.WalkSpeed or DEFAULT_WALK_SPEED
+            local direction = Vector3.new()
+            if UserInputService:IsKeyDown(Enum.KeyCode.W) then direction = direction + Vector3.new(0, 0, -1) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.S) then direction = direction + Vector3.new(0, 0, 1) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.A) then direction = direction + Vector3.new(-1, 0, 0) end
+            if UserInputService:IsKeyDown(Enum.KeyCode.D) then direction = direction + Vector3.new(1, 0, 0) end
+
+            pcall(function()
+                local controls = require(LocalPlayer.PlayerScripts:WaitForChild("PlayerModule"):WaitForChild("ControlModule"))
+                local mobileDirection = controls:GetMoveVector()
+                direction = direction + Vector3.new(mobileDirection.X, 0, mobileDirection.Z)
+            end)
+
+            local rotation = CFrame.fromOrientation(pitch, yaw, 0)
+            if direction.Magnitude > 0 then
+                cameraPosition = cameraPosition + rotation:VectorToWorldSpace(direction.Unit) * speed * 1.5 * dt
+            end
+            camera.CFrame = CFrame.new(cameraPosition) * rotation
+        end)
+    end)
+end)
+
+-- 天空盒
+local skyListFrame = Instance.new("Frame")
+skyListFrame.Size = UDim2.new(0, 280, 0, 0)
+skyListFrame.Position = UDim2.new(0, 20, 0, 325)
+skyListFrame.BackgroundColor3 = Color3.fromRGB(35, 35, 50)
+skyListFrame.BackgroundTransparency = 0.15
+skyListFrame.ClipsDescendants = true
+skyListFrame.Parent = pageVisual
+addCorner(skyListFrame, 10)
+
+local function restoreOriginalSky()
+    for _, object in ipairs(Lighting:GetChildren()) do
+        if object:IsA("Sky") or object:IsA("Atmosphere") then
+            object:Destroy()
+        end
+    end
+    if originalSky then
+        originalSky:Clone().Parent = Lighting
+    end
+    if originalAtmosphere then
+        originalAtmosphere:Clone().Parent = Lighting
+    end
+end
+
+local function setSky(id)
+    for _, object in ipairs(Lighting:GetChildren()) do
+        if object:IsA("Sky") or object:IsA("Atmosphere") then
+            object:Destroy()
+        end
+    end
+    local sky = Instance.new("Sky")
+    local asset = "rbxassetid://" .. tostring(id)
+    sky.SkyboxBk = asset
+    sky.SkyboxDn = asset
+    sky.SkyboxFt = asset
+    sky.SkyboxLf = asset
+    sky.SkyboxRt = asset
+    sky.SkyboxUp = asset
+    sky.SunVisible = false
+    sky.MoonVisible = false
+    sky.Parent = Lighting
+end
+
+local function makeSkyButton(y, text, callback)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -10, 0, 30)
+    button.Position = UDim2.new(0, 5, 0, y)
+    button.BackgroundColor3 = Color3.fromRGB(55, 55, 75)
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Text = text
+    button.Font = Enum.Font.SourceSansBold
+    button.TextSize = 13
+    button.Parent = skyListFrame
+    addCorner(button, 8)
+    button.MouseButton1Click:Connect(callback)
+end
+
+makeSkyButton(5, "外太空（Nebula）", function() setSky("159454299") end)
+makeSkyButton(40, "唯美晴空（Aesthetic Day）", function() setSky("144933338") end)
+makeSkyButton(75, "經典夜晚（Classic Night）", function() setSky("12064107") end)
+makeSkyButton(110, "恢復原遊戲天空", restoreOriginalSky)
+
+local skyOpen = false
+makeButton(pageVisual, 280, "修改天空（點擊展開）", function()
+    skyOpen = not skyOpen
+    TweenService:Create(skyListFrame, TweenInfo.new(0.25), {
+        Size = UDim2.new(0, 280, 0, skyOpen and 145 or 0),
+    }):Play()
+end)
+
+-- FOV：30 至 120 度，開啟後強制第一人稱。
+local fovButton = makeButton(pageVisual, 490, "開啟／關閉視覺 FOV（第一人稱）", function() end)
+fovControlFrame = Instance.new("Frame")
+fovControlFrame.Size = UDim2.new(0, 280, 0, 85)
+fovControlFrame.Position = UDim2.new(0, 20, 0, 535)
+fovControlFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 58)
+fovControlFrame.BackgroundTransparency = 0.2
+fovControlFrame.Visible = false
+fovControlFrame.Parent = pageVisual
+addCorner(fovControlFrame, 10)
+
+local fovLabel = Instance.new("TextLabel")
+fovLabel.Size = UDim2.new(1, -16, 0, 28)
+fovLabel.Position = UDim2.new(0, 8, 0, 6)
+fovLabel.BackgroundTransparency = 1
+fovLabel.TextColor3 = Color3.new(1, 1, 1)
+fovLabel.Text = "FOV：70°（數字越小，中心放大越遠）"
+fovLabel.Font = Enum.Font.SourceSans
+fovLabel.TextSize = 13
+fovLabel.Parent = fovControlFrame
+
+local fovBar = Instance.new("TextButton")
+fovBar.Size = UDim2.new(1, -32, 0, 12)
+fovBar.Position = UDim2.new(0, 16, 0, 43)
+fovBar.BackgroundColor3 = Color3.fromRGB(80, 80, 95)
+fovBar.Text = ""
+fovBar.AutoButtonColor = false
+fovBar.Parent = fovControlFrame
+addCorner(fovBar, 99)
+
+local fovFill = Instance.new("Frame")
+fovFill.Size = UDim2.new((fovValue - 30) / 90, 0, 1, 0)
+fovFill.BackgroundColor3 = Color3.fromRGB(0, 180, 255)
+fovFill.BorderSizePixel = 0
+fovFill.Parent = fovBar
+addCorner(fovFill, 99)
+
+local fovHint = Instance.new("TextLabel")
+fovHint.Size = UDim2.new(1, -16, 0, 20)
+fovHint.Position = UDim2.new(0, 8, 0, 62)
+fovHint.BackgroundTransparency = 1
+fovHint.Text = "左：30° 放大看遠　右：120° 廣角"
+fovHint.TextColor3 = Color3.fromRGB(190, 190, 210)
+fovHint.Font = Enum.Font.SourceSans
+fovHint.TextSize = 12
+fovHint.Parent = fovControlFrame
+
+local function updateFOVFromPosition(position)
+    local width = math.max(fovBar.AbsoluteSize.X, 1)
+    local alpha = math.clamp((position.X - fovBar.AbsolutePosition.X) / width, 0, 1)
+    fovValue = math.floor(30 + alpha * 90 + 0.5)
+    fovFill.Size = UDim2.new(alpha, 0, 1, 0)
+    fovLabel.Text = "FOV：" .. tostring(fovValue) .. "°（數字越小，中心放大越遠）"
+    if fovActive then
+        getCamera().FieldOfView = fovValue
+    end
+end
+
+fovBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        fovSliderDragging = true
+        updateFOVFromPosition(input.Position)
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if fovSliderDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        updateFOVFromPosition(input.Position)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        fovSliderDragging = false
+    end
+end)
+
+fovButton.MouseButton1Click:Connect(function()
+    fovActive = not fovActive
+    setFeature("FOV", fovActive)
+    local camera = getCamera()
+    if fovActive then
+        if freeCamActive then
+            stopFreeCam()
+        end
+        originalCameraMode = LocalPlayer.CameraMode
+        originalFieldOfView = camera.FieldOfView
+        LocalPlayer.CameraMode = Enum.CameraMode.LockFirstPerson
+        camera.FieldOfView = fovValue
+        fovControlFrame.Visible = true
+        fovButton.Text = "關閉視覺 FOV（回復一般視角）"
+    else
+        LocalPlayer.CameraMode = originalCameraMode
+        camera.FieldOfView = originalFieldOfView
+        fovControlFrame.Visible = false
+        fovButton.Text = "開啟／關閉視覺 FOV（第一人稱）"
+    end
+end)
+
+-- 動作分頁
+makeButton(pageAction, 10, "專業動畫包（Emote Pack）", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-FE-Emote-Script-205155")
+end)
+
+makeButton(pageAction, 55, "行走動畫腳本", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-Free-animations-112111")
+end)
+
+-- 翻譯分頁
+makeButton(pageTranslate, 10, "全自動翻譯（先點我）", function()
+    TX = "TX Script"
+    Script = "全自动翻译"
+    runExternalScript("https://raw.githubusercontent.com/JsYb666/Item/refs/heads/main/Auto-language")
+end)
+
+-- 物品分頁
+makeButton(pageItems, 10, "獲得趣味寶劍（經典握姿）", function()
+    local tool = Instance.new("Tool")
+    tool.Name = "趣味寶劍"
+    tool.RequiresHandle = true
+    tool.GripForward = Vector3.new(-1, 0, 0)
+    tool.GripPos = Vector3.new(0, 0, -1.5)
+    tool.GripRight = Vector3.new(0, 1, 0)
+    tool.GripUp = Vector3.new(0, 0, 1)
+
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Size = Vector3.new(1, 0.8, 4)
+    handle.Material = Enum.Material.Metal
+    handle.Color = Color3.fromRGB(163, 162, 165)
+    handle.CanCollide = false
+    handle.Parent = tool
+
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshId = "rbxassetid://12221720"
+    mesh.TextureId = "rbxassetid://12221721"
+    mesh.Parent = handle
+
+    tool.Activated:Connect(function()
+        TweenService:Create(handle, TweenInfo.new(0.1, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut, 0, true), {
+            CFrame = handle.CFrame * CFrame.Angles(math.rad(45), 0, 0),
+        }):Play()
+    end)
+    tool.Parent = LocalPlayer.Backpack
+end)
+
+makeButton(pageItems, 55, "獲得速度彈簧（Speed Coil）", function()
+    local tool = Instance.new("Tool")
+    tool.Name = "速度彈簧"
+    tool.RequiresHandle = true
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Size = Vector3.new(1, 2, 1)
+    handle.Color = Color3.fromRGB(255, 50, 50)
+    handle.CanCollide = false
+    handle.Parent = tool
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshId = "rbxassetid://99768008"
+    mesh.TextureId = "rbxassetid://99768220"
+    mesh.Parent = handle
+    tool.Equipped:Connect(function()
+        local humanoid = getHumanoid()
+        if humanoid then
+            humanoid.WalkSpeed = 50
+        end
+    end)
+    tool.Unequipped:Connect(function()
+        local humanoid = getHumanoid()
+        if humanoid then
+            humanoid.WalkSpeed = DEFAULT_WALK_SPEED
+        end
+    end)
+    tool.Parent = LocalPlayer.Backpack
+end)
+
+makeButton(pageItems, 100, "獲得重力彈簧（Gravity Coil）", function()
+    local tool = Instance.new("Tool")
+    tool.Name = "重力彈簧"
+    tool.RequiresHandle = true
+    local handle = Instance.new("Part")
+    handle.Name = "Handle"
+    handle.Size = Vector3.new(1, 2, 1)
+    handle.Color = Color3.fromRGB(60, 100, 255)
+    handle.CanCollide = false
+    handle.Parent = tool
+    local mesh = Instance.new("SpecialMesh")
+    mesh.MeshId = "rbxassetid://99768008"
+    mesh.TextureId = "rbxassetid://99768284"
+    mesh.Parent = handle
+    local gravityForce = nil
+
+    tool.Equipped:Connect(function()
+        local humanoid = getHumanoid()
+        local root = getRoot()
+        if humanoid then
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = 100
+        end
+        if root then
+            safeDestroy(gravityForce)
+            gravityForce = Instance.new("BodyForce")
+            gravityForce.Name = "PenguinGravityCoilForce"
+            gravityForce.Force = Vector3.new(0, Workspace.Gravity * 0.6 * root:GetMass(), 0)
+            gravityForce.Parent = root
+        end
+    end)
+
+    tool.Unequipped:Connect(function()
+        local humanoid = getHumanoid()
+        if humanoid then
+            humanoid.UseJumpPower = true
+            humanoid.JumpPower = DEFAULT_JUMP_POWER
+        end
+        safeDestroy(gravityForce)
+        gravityForce = nil
+    end)
+    tool.Parent = LocalPlayer.Backpack
+end)
+
+-- 系統分頁
+local systemInfo = Instance.new("TextLabel")
+systemInfo.Size = UDim2.new(0, 280, 0, 72)
+systemInfo.Position = UDim2.new(0, 20, 0, 60)
+systemInfo.BackgroundColor3 = Color3.fromRGB(40, 40, 56)
+systemInfo.BackgroundTransparency = 0.3
+systemInfo.TextColor3 = Color3.fromRGB(225, 225, 235)
+systemInfo.TextWrapped = true
+systemInfo.Text = "重置會關閉 Hub 的本地功能，清除軌跡、存檔點與 Hub 產生的道具，並還原速度、跳躍、視角與天空。"
+systemInfo.Font = Enum.Font.SourceSans
+systemInfo.TextSize = 13
+systemInfo.Parent = pageSystem
+addCorner(systemInfo, 10)
+
+local function removeHubTools()
+    local names = {
+        ["趣味寶劍"] = true,
+        ["速度彈簧"] = true,
+        ["重力彈簧"] = true,
+    }
+    for _, container in ipairs({LocalPlayer.Backpack, getCharacter()}) do
+        if container then
+            for _, item in ipairs(container:GetChildren()) do
+                if names[item.Name] then
+                    item:Destroy()
+                end
+            end
+        end
+    end
+end
+
+local function resetHubSettings()
+    godMode = false
+    noclip = false
+    infJump = false
+    antiAfk = false
+    fullBright = false
+    rainbowChar = false
+    restoreCharacterColors()
+    restoreCollisions()
+    clearRainbowTrail()
+    clearFireTrail()
+    clearCheckpoint()
+    checkpointBall.Visible = false
+
+    local humanoid = getHumanoid()
+    if humanoid then
+        humanoid.WalkSpeed = DEFAULT_WALK_SPEED
+        humanoid.UseJumpPower = true
+        humanoid.JumpPower = DEFAULT_JUMP_POWER
+    end
+
+    local root = getRoot()
+    if root then
+        root.Anchored = false
+        safeDestroy(root:FindFirstChild("PenguinGravityCoilForce"))
+    end
+
+    stopFreeCam()
+    safeDestroy(freeCamGuiObj)
+    freeCamGuiObj = nil
+    safeDestroy(dashGuiObj)
+    dashGuiObj = nil
+    fovActive = false
+    LocalPlayer.CameraMode = originalCameraMode
+    getCamera().CameraType = Enum.CameraType.Custom
+    getCamera().FieldOfView = originalFieldOfView
+    if fovControlFrame then
+        fovControlFrame.Visible = false
+    end
+    fovButton.Text = "開啟／關閉視覺 FOV（第一人稱）"
+
+    restoreLighting()
+    restoreOriginalSky()
+    espEnabled = false
+    refreshESP()
+    removeHubTools()
+    table.clear(activeFeatures)
+    systemInfo.Text = "已重置：速度、跳躍、視角、FOV、天空、存檔點、軌跡、Dash、ESP、全亮、穿牆、無限跳與 Hub 道具均已關閉。"
+end
+
+makeButton(pageSystem, 10, "重置玩家設定（全部 OFF）", resetHubSettings)
+
+-- 遊戲分頁
+makeButton(pageGames, 10, "MM2 專用功能", function()
+    runExternalScript("https://raw.githubusercontent.com/Waguriiiii/Murder-mystery-2/refs/heads/main/Waguri.lua")
+end)
+
+makeButton(pageGames, 55, "GEF", function()
+    runExternalScript("https://rawscripts.net/raw/Universal-Script-Fly-V3-X-132770")
+end)
+
+makeButton(pageGames, 100, "刀刃球（Rise）", function()
+    runExternalScript("https://raw.githubusercontent.com/joshhhie/rise/refs/heads/main/loader.lua")
+end)
+
+-- 新增：GEF 下方的競爭者 v1
+makeButton(pageGames, 145, "競爭者v1（oreo）", function()
+    runExternalScript("https://rawscripts.net/raw/RIVALS-OREO-loader-V1-83457")
+end)
+
+-- 新增：競爭者 v2
+makeButton(pageGames, 190, "競爭者v2（noks）", function()
+    runExternalScript("https://pastefy.app/ADaZcPEE/raw")
+end)
