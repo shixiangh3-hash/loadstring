@@ -1,0 +1,1244 @@
+-- 湊企鵝光影｜完整整合版
+-- 包含：Future 光影、真實陰影、日夜循環、3D 雨、雨量滑桿、增加 FPS、完整還原
+-- 適用於 Roblox Studio LocalScript 測試環境
+
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local playerGui = player:WaitForChild("PlayerGui")
+local Terrain = workspace:FindFirstChildOfClass("Terrain")
+
+local PREFIX = "PenguinLighting_"
+
+-- 如果重複執行，先清除舊介面
+local oldGui = playerGui:FindFirstChild("PenguinLightingGui")
+if oldGui then
+    oldGui:Destroy()
+end
+
+local gui = Instance.new("ScreenGui")
+gui.Name = "PenguinLightingGui"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+gui.Parent = playerGui
+
+local enabled = false
+local cycling = false
+local cycleId = 0
+local raining = false
+local rainAmount = 0.55
+local rainDragging = false
+
+local orbDragging = false
+local orbMoved = false
+local dragStart
+local orbStart
+
+local rainFolder
+local rainConnection
+local rainDrops = {}
+
+local fpsEnabled = false
+local savedProperties = {}
+local savedEffects = {}
+local savedParts = {}
+
+--==================================================
+-- 儲存原始 Lighting 設定
+--==================================================
+
+local function saveProperty(object, propertyName)
+    if not object then
+        return
+    end
+
+    local success, value = pcall(function()
+        return object[propertyName]
+    end)
+
+    if success then
+        savedProperties[object] = savedProperties[object] or {}
+        savedProperties[object][propertyName] = value
+    end
+end
+
+for _, propertyName in ipairs({
+    "Technology",
+    "GlobalShadows",
+    "Brightness",
+    "ClockTime",
+    "ExposureCompensation",
+    "Ambient",
+    "OutdoorAmbient",
+    "ColorShift_Top",
+    "ColorShift_Bottom",
+    "EnvironmentDiffuseScale",
+    "EnvironmentSpecularScale",
+    "ShadowSoftness",
+    "FogColor",
+    "FogStart",
+    "FogEnd"
+}) do
+    saveProperty(Lighting, propertyName)
+end
+
+if Terrain then
+    for _, propertyName in ipairs({
+        "WaterColor",
+        "WaterReflectance",
+        "WaterTransparency",
+        "WaterWaveSize",
+        "WaterWaveSpeed"
+    }) do
+        saveProperty(Terrain, propertyName)
+    end
+end
+
+-- 儲存原本的 Atmosphere、Sky、Bloom 等效果
+for _, object in ipairs(Lighting:GetChildren()) do
+    if object:IsA("Atmosphere")
+        or object:IsA("BloomEffect")
+        or object:IsA("ColorCorrectionEffect")
+        or object:IsA("SunRaysEffect")
+        or object:IsA("DepthOfFieldEffect")
+        or object:IsA("Sky") then
+
+        table.insert(savedEffects, object:Clone())
+    end
+end
+
+--==================================================
+-- 共用函式
+--==================================================
+
+local function createOwned(className, name, parent)
+    local object = Instance.new(className)
+    object.Name = PREFIX .. name
+    object.Parent = parent or Lighting
+    return object
+end
+
+local function clearOwnedEffects()
+    for _, object in ipairs(Lighting:GetChildren()) do
+        if object.Name:sub(1, #PREFIX) == PREFIX then
+            object:Destroy()
+        end
+    end
+
+    if Terrain then
+        for _, object in ipairs(Terrain:GetChildren()) do
+            if object.Name:sub(1, #PREFIX) == PREFIX then
+                object:Destroy()
+            end
+        end
+    end
+end
+
+local function setupBaseLighting()
+    pcall(function()
+        Lighting.Technology = Enum.Technology.Future
+    end)
+
+    Lighting.GlobalShadows = true
+    Lighting.ShadowSoftness = 0.09
+    Lighting.EnvironmentDiffuseScale = 0.86
+    Lighting.EnvironmentSpecularScale = 0.94
+end
+
+local function setupWater()
+    if not Terrain then
+        return
+    end
+
+    pcall(function()
+        Terrain.WaterColor = Color3.fromRGB(55, 164, 205)
+        Terrain.WaterReflectance = 0.72
+        Terrain.WaterTransparency = 0.2
+        Terrain.WaterWaveSize = 0.7
+        Terrain.WaterWaveSpeed = 20
+    end)
+end
+
+local function setupCloud(color, cover, density)
+    if not Terrain then
+        return
+    end
+
+    local clouds = createOwned("Clouds", "Clouds", Terrain)
+    clouds.Color = color
+    clouds.Cover = cover
+    clouds.Density = density
+end
+
+local function setupPostEffects(
+    atmosphereColor,
+    atmosphereDecay,
+    atmosphereDensity,
+    atmosphereHaze,
+    tintColor,
+    brightness,
+    contrast,
+    saturation,
+    bloomIntensity,
+    sunRaysIntensity
+)
+    local atmosphere = createOwned("Atmosphere", "Atmosphere")
+    atmosphere.Color = atmosphereColor
+    atmosphere.Decay = atmosphereDecay
+    atmosphere.Density = atmosphereDensity
+    atmosphere.Haze = atmosphereHaze
+    atmosphere.Glare = 0.06
+    atmosphere.Offset = 0.25
+
+    local colorCorrection = createOwned("ColorCorrectionEffect", "Color")
+    colorCorrection.TintColor = tintColor
+    colorCorrection.Brightness = brightness
+    colorCorrection.Contrast = contrast
+    colorCorrection.Saturation = saturation
+
+    local bloom = createOwned("BloomEffect", "Bloom")
+    bloom.Intensity = bloomIntensity
+    bloom.Size = 20
+    bloom.Threshold = 1.15
+
+    if sunRaysIntensity then
+        local sunRays = createOwned("SunRaysEffect", "SunRays")
+        sunRays.Intensity = sunRaysIntensity
+        sunRays.Spread = 0.8
+    end
+end
+
+--==================================================
+-- 時間與光影模式
+--==================================================
+
+local function applyPreset()
+    clearOwnedEffects()
+    setupBaseLighting()
+    setupWater()
+
+    Lighting.ClockTime = 16.55
+    Lighting.Brightness = 1.95
+    Lighting.ExposureCompensation = -0.01
+    Lighting.Ambient = Color3.fromRGB(68, 76, 92)
+    Lighting.OutdoorAmbient = Color3.fromRGB(142, 158, 180)
+    Lighting.ColorShift_Top = Color3.fromRGB(224, 235, 238)
+    Lighting.ColorShift_Bottom = Color3.fromRGB(214, 190, 155)
+    Lighting.FogColor = Color3.fromRGB(177, 210, 226)
+    Lighting.FogStart = 700
+    Lighting.FogEnd = 100000
+
+    setupCloud(
+        Color3.fromRGB(232, 238, 242),
+        0.2,
+        0.12
+    )
+
+    setupPostEffects(
+        Color3.fromRGB(185, 215, 230),
+        Color3.fromRGB(135, 150, 170),
+        0.035,
+        0.2,
+        Color3.fromRGB(248, 246, 238),
+        0,
+        0.22,
+        0.02,
+        0.09,
+        0.1
+    )
+end
+
+local function applyDay()
+    clearOwnedEffects()
+    setupBaseLighting()
+    setupWater()
+
+    Lighting.ClockTime = 13.1
+    Lighting.Brightness = 1.72
+    Lighting.ExposureCompensation = -0.04
+    Lighting.Ambient = Color3.fromRGB(78, 86, 103)
+    Lighting.OutdoorAmbient = Color3.fromRGB(145, 158, 180)
+    Lighting.ColorShift_Top = Color3.fromRGB(232, 239, 242)
+    Lighting.ColorShift_Bottom = Color3.fromRGB(174, 198, 215)
+    Lighting.FogColor = Color3.fromRGB(205, 221, 232)
+    Lighting.FogStart = 900
+    Lighting.FogEnd = 100000
+
+    setupCloud(
+        Color3.fromRGB(235, 240, 245),
+        0.18,
+        0.11
+    )
+
+    setupPostEffects(
+        Color3.fromRGB(190, 218, 235),
+        Color3.fromRGB(115, 135, 160),
+        0.035,
+        0.18,
+        Color3.fromRGB(244, 248, 248),
+        -0.015,
+        0.16,
+        -0.04,
+        0.08,
+        0.075
+    )
+end
+
+local function applySunset()
+    clearOwnedEffects()
+    setupBaseLighting()
+    setupWater()
+
+    Lighting.ClockTime = 17.65
+    Lighting.Brightness = 2.05
+    Lighting.ExposureCompensation = 0.08
+    Lighting.Ambient = Color3.fromRGB(22, 25, 40)
+    Lighting.OutdoorAmbient = Color3.fromRGB(74, 82, 116)
+    Lighting.ColorShift_Top = Color3.fromRGB(255, 198, 132)
+    Lighting.ColorShift_Bottom = Color3.fromRGB(70, 86, 155)
+    Lighting.FogColor = Color3.fromRGB(250, 181, 120)
+    Lighting.FogStart = 350
+    Lighting.FogEnd = 100000
+
+    setupCloud(
+        Color3.fromRGB(250, 225, 195),
+        0.3,
+        0.2
+    )
+
+    setupPostEffects(
+        Color3.fromRGB(255, 214, 166),
+        Color3.fromRGB(45, 58, 135),
+        0.085,
+        0.46,
+        Color3.fromRGB(255, 238, 220),
+        0.012,
+        0.30,
+        0.14,
+        0.2,
+        0.17
+    )
+end
+
+local function applyNight()
+    clearOwnedEffects()
+    setupBaseLighting()
+    setupWater()
+
+    Lighting.ClockTime = 0.15
+    Lighting.Brightness = 1.16
+    Lighting.ExposureCompensation = 0.22
+    Lighting.Ambient = Color3.fromRGB(38, 47, 96)
+    Lighting.OutdoorAmbient = Color3.fromRGB(62, 76, 145)
+    Lighting.ColorShift_Top = Color3.fromRGB(70, 98, 198)
+    Lighting.ColorShift_Bottom = Color3.fromRGB(20, 34, 105)
+    Lighting.FogColor = Color3.fromRGB(34, 48, 112)
+    Lighting.FogStart = 300
+    Lighting.FogEnd = 100000
+
+    local sky = createOwned("Sky", "NightSky")
+    sky.CelestialBodiesShown = true
+    sky.StarCount = 5000
+
+    local nightSkyId = "rbxassetid://159454299"
+    sky.SkyboxBk = nightSkyId
+    sky.SkyboxDn = nightSkyId
+    sky.SkyboxFt = nightSkyId
+    sky.SkyboxLf = nightSkyId
+    sky.SkyboxRt = nightSkyId
+    sky.SkyboxUp = nightSkyId
+
+    setupPostEffects(
+        Color3.fromRGB(82, 112, 228),
+        Color3.fromRGB(18, 30, 100),
+        0.055,
+        0.3,
+        Color3.fromRGB(175, 198, 255),
+        0.035,
+        0.27,
+        0.1,
+        0.11,
+        nil
+    )
+end
+
+local function applyFog()
+    clearOwnedEffects()
+    setupBaseLighting()
+    setupWater()
+
+    Lighting.ClockTime = 17.85
+    Lighting.Brightness = 1.9
+    Lighting.ExposureCompensation = 0.06
+    Lighting.Ambient = Color3.fromRGB(24, 28, 44)
+    Lighting.OutdoorAmbient = Color3.fromRGB(76, 84, 118)
+    Lighting.FogColor = Color3.fromRGB(205, 170, 145)
+    Lighting.FogStart = 0
+    Lighting.FogEnd = 260
+
+    setupPostEffects(
+        Color3.fromRGB(220, 205, 198),
+        Color3.fromRGB(70, 82, 120),
+        0.5,
+        2.45,
+        Color3.fromRGB(250, 225, 208),
+        0.01,
+        0.25,
+        0.02,
+        0.16,
+        nil
+    )
+end
+
+local function applyTimeMode(mode)
+    if mode == "預設光影" then
+        applyPreset()
+    elseif mode == "白天" then
+        applyDay()
+    elseif mode == "夜晚" then
+        applyNight()
+    elseif mode == "起霧" then
+        applyFog()
+    else
+        applySunset()
+    end
+end
+
+--==================================================
+-- 3D 雨系統
+--==================================================
+
+local function stopRain()
+    if rainConnection then
+        rainConnection:Disconnect()
+        rainConnection = nil
+    end
+
+    if rainFolder then
+        rainFolder:Destroy()
+        rainFolder = nil
+    end
+
+    table.clear(rainDrops)
+    raining = false
+
+    for _, object in ipairs(Lighting:GetChildren()) do
+        if object.Name:sub(1, #PREFIX) == PREFIX
+            and object.Name:find("Weather") then
+            object:Destroy()
+        end
+    end
+end
+
+local function targetRainCount()
+    return math.floor(100 + rainAmount * 900)
+end
+
+local function resizeRain()
+    if not rainFolder then
+        return
+    end
+
+    local dropsFolder = rainFolder:FindFirstChild("Drops")
+    if not dropsFolder then
+        return
+    end
+
+    while #rainDrops < targetRainCount() do
+        local part = Instance.new("Part")
+        part.Anchored = true
+        part.CanCollide = false
+        part.CanTouch = false
+        part.CanQuery = false
+        part.Material = Enum.Material.Neon
+        part.Color = Color3.fromRGB(165, 198, 230)
+        part.Transparency = 0.18
+        part.Size = Vector3.new(
+            0.08,
+            math.random(34, 58) / 10,
+            0.08
+        )
+        part.Parent = dropsFolder
+
+        table.insert(rainDrops, {
+            part = part,
+            offset = Vector3.new(
+                math.random(-70, 70),
+                math.random(-10, 70),
+                math.random(-70, 70)
+            ),
+            speed = math.random(78, 122)
+        })
+    end
+
+    while #rainDrops > targetRainCount() do
+        local drop = table.remove(rainDrops)
+        if drop and drop.part then
+            drop.part:Destroy()
+        end
+    end
+end
+
+local function startRain()
+    stopRain()
+    raining = true
+
+    rainFolder = Instance.new("Folder")
+    rainFolder.Name = PREFIX .. "Weather_Rain"
+    rainFolder.Parent = workspace
+
+    local dropsFolder = Instance.new("Folder")
+    dropsFolder.Name = "Drops"
+    dropsFolder.Parent = rainFolder
+
+    resizeRain()
+
+    local atmosphere = createOwned(
+        "Atmosphere",
+        "Weather_Atmosphere"
+    )
+    atmosphere.Color = Color3.fromRGB(150, 165, 185)
+    atmosphere.Decay = Color3.fromRGB(80, 95, 115)
+    atmosphere.Density = 0.4
+    atmosphere.Haze = 2.5
+    atmosphere.Glare = 0
+
+    local colorCorrection = createOwned(
+        "ColorCorrectionEffect",
+        "Weather_Color"
+    )
+    colorCorrection.Brightness = -0.06
+    colorCorrection.Contrast = 0.14
+    colorCorrection.Saturation = -0.3
+    colorCorrection.TintColor = Color3.fromRGB(178, 198, 222)
+
+    Lighting.Ambient = Color3.fromRGB(52, 62, 76)
+    Lighting.OutdoorAmbient = Color3.fromRGB(66, 78, 94)
+    Lighting.FogColor = Color3.fromRGB(104, 118, 136)
+    Lighting.FogStart = 24
+    Lighting.FogEnd = 390
+
+    setupCloud(
+        Color3.fromRGB(80, 88, 100),
+        1,
+        0.9
+    )
+
+    rainConnection = RunService.RenderStepped:Connect(function(deltaTime)
+        local camera = workspace.CurrentCamera
+        if not camera then
+            return
+        end
+
+        local center = camera.CFrame.Position
+
+        for _, drop in ipairs(rainDrops) do
+            if drop.part and drop.part.Parent then
+                drop.offset -= Vector3.new(
+                    3.5,
+                    drop.speed,
+                    2.2
+                ) * deltaTime
+
+                if drop.offset.Y < -12 then
+                    drop.offset = Vector3.new(
+                        math.random(-70, 70),
+                        math.random(46, 75),
+                        math.random(-70, 70)
+                    )
+                end
+
+                drop.part.Position = center + drop.offset
+            end
+        end
+    end)
+end
+
+--==================================================
+-- 增加 FPS
+--==================================================
+
+local function enableFPS()
+    if fpsEnabled then
+        return
+    end
+
+    fpsEnabled = true
+    table.clear(savedParts)
+
+    for _, object in ipairs(workspace:GetDescendants()) do
+        if object:IsA("BasePart")
+            and not object:IsDescendantOf(gui)
+            and not object.Name:find(PREFIX) then
+
+            table.insert(savedParts, {
+                part = object,
+                material = object.Material,
+                color = object.Color,
+                reflectance = object.Reflectance,
+                castShadow = object.CastShadow
+            })
+
+            pcall(function()
+                object.Material = Enum.Material.SmoothPlastic
+                object.Reflectance = 0
+                object.CastShadow = false
+            end)
+        end
+    end
+
+    -- 降低部分後製效果負擔，但不移除目前的光影介面
+    for _, object in ipairs(Lighting:GetChildren()) do
+        if object:IsA("BloomEffect")
+            or object:IsA("SunRaysEffect")
+            or object:IsA("DepthOfFieldEffect") then
+            pcall(function()
+                object.Enabled = false
+            end)
+        end
+    end
+end
+
+--==================================================
+-- 還原所有設定
+--==================================================
+
+local function restore()
+    cycleId += 1
+    cycling = false
+
+    stopRain()
+    clearOwnedEffects()
+
+    for object, properties in pairs(savedProperties) do
+        if object and object.Parent then
+            for propertyName, value in pairs(properties) do
+                pcall(function()
+                    object[propertyName] = value
+                end)
+            end
+        end
+    end
+
+    for _, object in ipairs(savedEffects) do
+        if object then
+            object:Clone().Parent = Lighting
+        end
+    end
+
+    for _, data in ipairs(savedParts) do
+        if data.part and data.part.Parent then
+            pcall(function()
+                data.part.Material = data.material
+                data.part.Color = data.color
+                data.part.Reflectance = data.reflectance
+                data.part.CastShadow = data.castShadow
+            end)
+        end
+    end
+
+    table.clear(savedParts)
+    fpsEnabled = false
+    enabled = false
+end
+
+--==================================================
+-- UI 函式
+--==================================================
+
+local function createButton(parent, y, text, color, height)
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -30, 0, height or 40)
+    button.Position = UDim2.fromOffset(15, y)
+    button.BackgroundColor3 = color
+    button.Text = text
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.TextSize = 16
+    button.Font = Enum.Font.GothamBold
+    button.AutoButtonColor = true
+    button.ZIndex = 31
+    button.Parent = parent
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 10)
+    corner.Parent = button
+
+    return button
+end
+
+local function createMenu(size, position)
+    local frame = Instance.new("Frame")
+    frame.Size = size
+    frame.Position = position
+    frame.BackgroundColor3 = Color3.fromRGB(24, 27, 39)
+    frame.Visible = false
+    frame.ZIndex = 30
+    frame.Parent = gui
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 16)
+    corner.Parent = frame
+
+    return frame
+end
+
+local function createMenuTitle(parent, text)
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, -28, 0, 40)
+    label.Position = UDim2.fromOffset(14, 8)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(255, 224, 105)
+    label.TextSize = 22
+    label.Font = Enum.Font.GothamBold
+    label.ZIndex = 31
+    label.Parent = parent
+    return label
+end
+
+--==================================================
+-- 主介面
+--==================================================
+
+local orb = Instance.new("TextButton")
+orb.Size = UDim2.fromOffset(58, 58)
+orb.Position = UDim2.new(0, 22, 0.5, -29)
+orb.BackgroundColor3 = Color3.fromRGB(255, 202, 35)
+orb.Text = "☀"
+orb.TextSize = 29
+orb.ZIndex = 30
+orb.Parent = gui
+
+local orbCorner = Instance.new("UICorner")
+orbCorner.CornerRadius = UDim.new(1, 0)
+orbCorner.Parent = orb
+
+local panel = createMenu(
+    UDim2.fromOffset(320, 370),
+    UDim2.new(0.5, -160, 0.5, -185)
+)
+
+local title = Instance.new("TextLabel")
+title.Size = UDim2.new(1, -30, 0, 48)
+title.Position = UDim2.fromOffset(15, 8)
+title.BackgroundTransparency = 1
+title.Text = "湊企鵝光影"
+title.TextColor3 = Color3.fromRGB(255, 224, 105)
+title.TextSize = 24
+title.Font = Enum.Font.GothamBold
+title.ZIndex = 31
+title.Parent = panel
+
+local status = Instance.new("TextLabel")
+status.Size = UDim2.new(1, -30, 0, 25)
+status.Position = UDim2.fromOffset(15, 68)
+status.BackgroundTransparency = 1
+status.Text = "目前狀態：未開啟"
+status.TextColor3 = Color3.fromRGB(215, 225, 240)
+status.TextSize = 14
+status.Font = Enum.Font.Gotham
+status.ZIndex = 31
+status.Parent = panel
+
+local toggle = createButton(
+    panel,
+    100,
+    "開啟光影",
+    Color3.fromRGB(58, 75, 100)
+)
+
+local timeButton = createButton(
+    panel,
+    150,
+    "當前時間：夕陽",
+    Color3.fromRGB(65, 95, 112)
+)
+
+local weatherButton = createButton(
+    panel,
+    200,
+    "當前天氣：晴天",
+    Color3.fromRGB(65, 115, 105)
+)
+
+local settingButton = createButton(
+    panel,
+    250,
+    "畫面設定",
+    Color3.fromRGB(100, 75, 135)
+)
+
+local resetButton = createButton(
+    panel,
+    300,
+    "恢復原本畫面",
+    Color3.fromRGB(92, 65, 76)
+)
+
+--==================================================
+-- 畫面設定頁面
+--==================================================
+
+local settingMenu = createMenu(
+    UDim2.fromOffset(320, 160),
+    UDim2.new(0.5, -160, 0.5, -80)
+)
+
+createMenuTitle(settingMenu, "畫面設定")
+
+local fpsButton = createButton(
+    settingMenu,
+    52,
+    "增加 FPS",
+    Color3.fromRGB(70, 110, 95),
+    40
+)
+
+local settingDone = createButton(
+    settingMenu,
+    105,
+    "完成",
+    Color3.fromRGB(92, 65, 76),
+    38
+)
+
+--==================================================
+-- 當前天氣頁面
+--==================================================
+
+local weatherMenu = createMenu(
+    UDim2.fromOffset(320, 285),
+    UDim2.new(0.5, -160, 0.5, -142)
+)
+
+createMenuTitle(weatherMenu, "選擇當前天氣")
+
+local rainButton = createButton(
+    weatherMenu,
+    55,
+    "下雨",
+    Color3.fromRGB(75, 90, 115),
+    38
+)
+
+local sunnyButton = createButton(
+    weatherMenu,
+    101,
+    "晴天",
+    Color3.fromRGB(75, 125, 105),
+    38
+)
+
+local rainLabel = Instance.new("TextLabel")
+rainLabel.Size = UDim2.new(1, -30, 0, 24)
+rainLabel.Position = UDim2.fromOffset(15, 148)
+rainLabel.BackgroundTransparency = 1
+rainLabel.Text = "雨量：中"
+rainLabel.TextColor3 = Color3.fromRGB(220, 230, 245)
+rainLabel.TextSize = 15
+rainLabel.Font = Enum.Font.GothamBold
+rainLabel.ZIndex = 31
+rainLabel.Parent = weatherMenu
+
+local rainTrack = Instance.new("Frame")
+rainTrack.Size = UDim2.new(1, -40, 0, 8)
+rainTrack.Position = UDim2.fromOffset(20, 181)
+rainTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
+rainTrack.ZIndex = 31
+rainTrack.Parent = weatherMenu
+
+local rainTrackCorner = Instance.new("UICorner")
+rainTrackCorner.CornerRadius = UDim.new(1, 0)
+rainTrackCorner.Parent = rainTrack
+
+local rainKnob = Instance.new("TextButton")
+rainKnob.Size = UDim2.fromOffset(24, 24)
+rainKnob.Position = UDim2.new(rainAmount, -12, 0.5, -12)
+rainKnob.BackgroundColor3 = Color3.fromRGB(255, 220, 110)
+rainKnob.Text = ""
+rainKnob.ZIndex = 32
+rainKnob.Parent = rainTrack
+
+local rainKnobCorner = Instance.new("UICorner")
+rainKnobCorner.CornerRadius = UDim.new(1, 0)
+rainKnobCorner.Parent = rainKnob
+
+local weatherDone = createButton(
+    weatherMenu,
+    225,
+    "完成",
+    Color3.fromRGB(92, 65, 76),
+    38
+)
+
+--==================================================
+-- 當前時間頁面
+--==================================================
+
+local timeMenu = createMenu(
+    UDim2.fromOffset(320, 405),
+    UDim2.new(0.5, -160, 0.5, -202)
+)
+
+createMenuTitle(timeMenu, "選擇當前時間")
+
+local presetButton = createButton(
+    timeMenu,
+    52,
+    "預設光影",
+    Color3.fromRGB(58, 125, 145),
+    38
+)
+
+local dayButton = createButton(
+    timeMenu,
+    96,
+    "白天",
+    Color3.fromRGB(80, 120, 145),
+    38
+)
+
+local nightButton = createButton(
+    timeMenu,
+    140,
+    "夜晚／星空",
+    Color3.fromRGB(45, 55, 110),
+    38
+)
+
+local fogButton = createButton(
+    timeMenu,
+    184,
+    "起霧",
+    Color3.fromRGB(100, 105, 120),
+    38
+)
+
+local sunsetButton = createButton(
+    timeMenu,
+    228,
+    "夕陽",
+    Color3.fromRGB(155, 92, 58),
+    38
+)
+
+local cycleButton = createButton(
+    timeMenu,
+    272,
+    "日夜循環",
+    Color3.fromRGB(62, 135, 96),
+    38
+)
+
+local timeDone = createButton(
+    timeMenu,
+    328,
+    "完成",
+    Color3.fromRGB(92, 65, 76),
+    38
+)
+
+--==================================================
+-- UI 行為
+--==================================================
+
+local function chooseTime(mode, displayName)
+    cycleId += 1
+    cycling = false
+    enabled = true
+
+    applyTimeMode(mode)
+
+    status.Text = "目前狀態：" .. displayName
+    timeButton.Text = "當前時間：" .. displayName
+    toggle.Text = "關閉光影"
+
+    timeMenu.Visible = false
+    weatherMenu.Visible = false
+    settingMenu.Visible = false
+    panel.Visible = true
+end
+
+presetButton.Activated:Connect(function()
+    chooseTime("預設光影", "預設光影")
+end)
+
+dayButton.Activated:Connect(function()
+    chooseTime("白天", "白天")
+end)
+
+nightButton.Activated:Connect(function()
+    chooseTime("夜晚", "夜晚／星空")
+end)
+
+fogButton.Activated:Connect(function()
+    chooseTime("起霧", "起霧")
+end)
+
+sunsetButton.Activated:Connect(function()
+    chooseTime("夕陽", "夕陽")
+end)
+
+cycleButton.Activated:Connect(function()
+    cycleId += 1
+    local currentCycle = cycleId
+
+    cycling = true
+    enabled = true
+    toggle.Text = "關閉光影"
+
+    timeMenu.Visible = false
+    panel.Visible = true
+
+    task.spawn(function()
+        while cycling and currentCycle == cycleId do
+            applyDay()
+            status.Text = "目前狀態：日夜循環｜白天"
+            timeButton.Text = "當前時間：日夜循環"
+
+            task.wait(180)
+
+            if not cycling or currentCycle ~= cycleId then
+                break
+            end
+
+            applySunset()
+            status.Text = "目前狀態：日夜循環｜夕陽"
+
+            task.wait(30)
+
+            if not cycling or currentCycle ~= cycleId then
+                break
+            end
+
+            applyNight()
+            status.Text = "目前狀態：日夜循環｜夜晚"
+
+            task.wait(60)
+        end
+    end)
+end)
+
+timeButton.Activated:Connect(function()
+    panel.Visible = false
+    weatherMenu.Visible = false
+    settingMenu.Visible = false
+    timeMenu.Visible = true
+end)
+
+weatherButton.Activated:Connect(function()
+    panel.Visible = false
+    timeMenu.Visible = false
+    settingMenu.Visible = false
+    weatherMenu.Visible = true
+end)
+
+settingButton.Activated:Connect(function()
+    panel.Visible = false
+    timeMenu.Visible = false
+    weatherMenu.Visible = false
+    settingMenu.Visible = true
+end)
+
+timeDone.Activated:Connect(function()
+    timeMenu.Visible = false
+    panel.Visible = true
+end)
+
+weatherDone.Activated:Connect(function()
+    weatherMenu.Visible = false
+    panel.Visible = true
+end)
+
+settingDone.Activated:Connect(function()
+    settingMenu.Visible = false
+    panel.Visible = true
+end)
+
+rainButton.Activated:Connect(function()
+    startRain()
+    weatherButton.Text = "當前天氣：下雨"
+    weatherMenu.Visible = false
+    panel.Visible = true
+end)
+
+sunnyButton.Activated:Connect(function()
+    stopRain()
+    weatherButton.Text = "當前天氣：晴天"
+    weatherMenu.Visible = false
+    panel.Visible = true
+end)
+
+fpsButton.Activated:Connect(function()
+    enableFPS()
+
+    fpsButton.Text = "增加 FPS：已開啟"
+    status.Text = "目前狀態：增加 FPS 已開啟"
+end)
+
+toggle.Activated:Connect(function()
+    if enabled then
+        restore()
+        toggle.Text = "開啟光影"
+        status.Text = "目前狀態：已關閉"
+    else
+        chooseTime("預設光影", "預設光影")
+    end
+end)
+
+resetButton.Activated:Connect(function()
+    restore()
+
+    toggle.Text = "開啟光影"
+    status.Text = "目前狀態：已恢復"
+    timeButton.Text = "當前時間：夕陽"
+    weatherButton.Text = "當前天氣：晴天"
+    fpsButton.Text = "增加 FPS"
+
+    panel.Visible = true
+    timeMenu.Visible = false
+    weatherMenu.Visible = false
+    settingMenu.Visible = false
+end)
+
+--==================================================
+-- 雨量滑桿：支援滑鼠與手機觸控
+--==================================================
+
+local function updateRainFromInput(input)
+    local trackWidth = math.max(rainTrack.AbsoluteSize.X, 1)
+    local relativeX = input.Position.X - rainTrack.AbsolutePosition.X
+
+    local value = math.clamp(
+        relativeX / trackWidth,
+        0.05,
+        1
+    )
+
+    rainAmount = value
+    rainKnob.Position = UDim2.new(
+        rainAmount,
+        -12,
+        0.5,
+        -12
+    )
+
+    if rainAmount < 0.34 then
+        rainLabel.Text = "雨量：小"
+    elseif rainAmount < 0.67 then
+        rainLabel.Text = "雨量：中"
+    else
+        rainLabel.Text = "雨量：大"
+    end
+
+    if raining then
+        resizeRain()
+    end
+end
+
+rainTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        rainDragging = true
+        updateRainFromInput(input)
+    end
+end)
+
+rainKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        rainDragging = true
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if rainDragging
+        and (
+            input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+        ) then
+
+        updateRainFromInput(input)
+    end
+end)
+
+UserInputService.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        rainDragging = false
+        orbDragging = false
+    end
+end)
+
+--==================================================
+-- 浮動按鈕拖曳：支援滑鼠與手機觸控
+--==================================================
+
+orb.Activated:Connect(function()
+    if orbMoved then
+        orbMoved = false
+        return
+    end
+
+    panel.Visible = not panel.Visible
+
+    if panel.Visible then
+        timeMenu.Visible = false
+        weatherMenu.Visible = false
+        settingMenu.Visible = false
+    end
+end)
+
+orb.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1
+        or input.UserInputType == Enum.UserInputType.Touch then
+
+        orbDragging = true
+        orbMoved = false
+        dragStart = input.Position
+        orbStart = orb.Position
+    end
+end)
+
+UserInputService.InputChanged:Connect(function(input)
+    if orbDragging
+        and (
+            input.UserInputType == Enum.UserInputType.MouseMovement
+            or input.UserInputType == Enum.UserInputType.Touch
+        ) then
+
+        local delta = input.Position - dragStart
+
+        if delta.Magnitude > 8 then
+            orbMoved = true
+        end
+
+        orb.Position = UDim2.new(
+            orbStart.X.Scale,
+            orbStart.X.Offset + delta.X,
+            orbStart.Y.Scale,
+            orbStart.Y.Offset + delta.Y
+        )
+    end
+end)
+
+--==================================================
+-- 清理
+--==================================================
+
+script.Destroying:Connect(function()
+    restore()
+
+    if gui then
+        gui:Destroy()
+    end
+end)
+
+print("湊企鵝光影：完整整合版已載入")
