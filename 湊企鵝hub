@@ -1,0 +1,342 @@
+-- 湊企鵝Hub 完整整合版
+-- 完整載入原始 Hub，保留所有既有功能
+-- 追加／保留：鎖頭
+-- 版面整理：各分頁收緊 CanvasSize，遊戲按鈕連續排列
+
+local Players = game:GetService("Players")
+local CoreGui = game:GetService("CoreGui")
+local StarterGui = game:GetService("StarterGui")
+local LocalPlayer = Players.LocalPlayer
+local GuiParent = (typeof(gethui) == "function" and gethui()) or CoreGui
+
+local ORIGINAL_HUB_URL = "https://raw.githubusercontent.com/shixiangh3-hash/loadstring/refs/heads/main/My%20script"
+local LOCK_URL = "https://pastefy.app/YiGY38uo/raw"
+
+local function notify(title, text)
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = title,
+            Text = text,
+            Duration = 5,
+        })
+    end)
+end
+
+local function compileRemote(url)
+    local okDownload, sourceOrError = pcall(function()
+        return game:HttpGet(url, true)
+    end)
+
+    if not okDownload then
+        return nil, "下載失敗：" .. tostring(sourceOrError)
+    end
+
+    if type(sourceOrError) ~= "string" or sourceOrError == "" then
+        return nil, "下載內容為空白"
+    end
+
+    local okCompile, functionOrError = pcall(function()
+        return loadstring(sourceOrError)
+    end)
+
+    if not okCompile or type(functionOrError) ~= "function" then
+        return nil, "編譯失敗：" .. tostring(functionOrError)
+    end
+
+    return functionOrError
+end
+
+local function runRemote(url, name)
+    task.spawn(function()
+        local scriptFunction, errorMessage = compileRemote(url)
+        if not scriptFunction then
+            warn("湊企鵝Hub｜" .. name .. "：", errorMessage)
+            notify("湊企鵝Hub", name .. " 載入失敗")
+            return
+        end
+
+        local okRun, runError = pcall(function()
+            scriptFunction()
+        end)
+
+        if not okRun then
+            warn("湊企鵝Hub｜" .. name .. " 執行失敗：", runError)
+            notify("湊企鵝Hub", name .. " 執行失敗")
+        end
+    end)
+end
+
+-- 先完整載入原始 Hub。
+-- 玩家、傳送、視覺、動作、翻譯、物品、系統、遊戲全部由原始 Hub 建立。
+local originalHub, originalError = compileRemote(ORIGINAL_HUB_URL)
+if not originalHub then
+    warn("湊企鵝Hub：原始完整 Hub 載入失敗：", originalError)
+    notify("湊企鵝Hub", "原始完整 Hub 載入失敗")
+    return
+end
+
+local okOriginal, originalRunError = pcall(function()
+    originalHub()
+end)
+
+if not okOriginal then
+    warn("湊企鵝Hub：原始完整 Hub 執行失敗：", originalRunError)
+    notify("湊企鵝Hub", "原始完整 Hub 執行失敗")
+    return
+end
+
+local function addCorner(object, radius)
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, radius or 10)
+    corner.Parent = object
+end
+
+local function addStroke(object)
+    local stroke = Instance.new("UIStroke")
+    stroke.Color = Color3.fromRGB(235, 235, 255)
+    stroke.Thickness = 1
+    stroke.Transparency = 0.2
+    stroke.Parent = object
+end
+
+local function findMainGui()
+    return GuiParent:FindFirstChild("PenguinHubMainV15")
+end
+
+local function findPageByButton(texts)
+    local mainGui = findMainGui()
+    if not mainGui then
+        return nil
+    end
+
+    for _, object in ipairs(mainGui:GetDescendants()) do
+        if object:IsA("ScrollingFrame") then
+            for _, child in ipairs(object:GetChildren()) do
+                if child:IsA("TextButton") then
+                    for _, text in ipairs(texts) do
+                        if child.Text == text then
+                            return object
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
+local function getButton(page, text)
+    if not page then
+        return nil
+    end
+
+    for _, child in ipairs(page:GetChildren()) do
+        if child:IsA("TextButton") and child.Text == text then
+            return child
+        end
+    end
+
+    return nil
+end
+
+local function setButtonY(page, text, y)
+    local button = getButton(page, text)
+    if button then
+        button.Position = UDim2.new(0, 20, 0, y)
+        button.Size = UDim2.new(0, 280, 0, 35)
+    end
+end
+
+local function createButtonIfMissing(page, name, text, y, callback)
+    if not page or getButton(page, text) then
+        return
+    end
+
+    local button = Instance.new("TextButton")
+    button.Name = name
+    button.Position = UDim2.new(0, 20, 0, y)
+    button.Size = UDim2.new(0, 280, 0, 35)
+    button.BackgroundColor3 = Color3.fromRGB(60, 60, 70)
+    button.BackgroundTransparency = 0.25
+    button.TextColor3 = Color3.new(1, 1, 1)
+    button.Text = text
+    button.Font = Enum.Font.SourceSansBold
+    button.TextSize = 14
+    button.TextWrapped = true
+    button.Parent = page
+    addCorner(button, 10)
+    addStroke(button)
+    button.MouseButton1Click:Connect(callback)
+end
+
+local function arrangeGamePage()
+    local gamesPage = findPageByButton({
+        "MM2 專用功能",
+        "GEF",
+        "刀刃球（Rise）",
+        "競爭者v1（oreo）",
+        "競爭者v2（noks）",
+    })
+
+    if not gamesPage then
+        return false
+    end
+
+    -- 只在缺少時補回；已存在的按鈕與回呼不會被刪除或替換。
+    createButtonIfMissing(gamesPage, "PenguinHubMM2V2", "MM2 v2", 55, function()
+        runRemote("https://api.jnkie.com/api/v1/luascripts/public/09f2ab78182c2ea3e3c3002d0ba6f307c29c0a125d486f56e402e9949e1a0a01/download", "MM2 v2")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubMM2V3", "MM2 v3", 100, function()
+        runRemote("https://pastefy.app/a2dAk154/raw", "MM2 v3")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubGEF", "GEF", 145, function()
+        runRemote("https://rawscripts.net/raw/Universal-Script-Fly-V3-X-132770", "GEF")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubBladeBall", "刀刃球（Rise）", 190, function()
+        runRemote("https://raw.githubusercontent.com/joshhhie/rise/refs/heads/main/loader.lua", "刀刃球")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubRivalsV1", "競爭者v1（oreo）", 235, function()
+        runRemote("https://rawscripts.net/raw/RIVALS-OREO-loader-V1-83457", "競爭者v1")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubRivalsV2", "競爭者v2（noks）", 280, function()
+        runRemote("https://pastefy.app/ADaZcPEE/raw", "競爭者v2")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubBloxFruit", "Blox Fruit", 325, function()
+        runRemote("https://rawscripts.net/raw/Universal-Script-Quantum-Onyx-Project-32118", "Blox Fruit")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubStealEgg", "偷走一顆蛋", 370, function()
+        runRemote("https://rawscripts.net/raw/Steal-An-Egg-bypass-anti-cheat-224212", "偷走一顆蛋")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubGarden2", "培養花園2", 415, function()
+        runRemote("https://raw.githubusercontent.com/as6cd0/SP_Hub/refs/heads/main/Loader", "培養花園2")
+    end)
+
+    createButtonIfMissing(gamesPage, "PenguinHubBarryPrison", "貝瑞的監獄逃跑", 460, function()
+        runRemote("https://pastefy.app/vswQcD9a/raw", "貝瑞的監獄逃跑")
+    end)
+
+    local ordered = {
+        {"MM2 專用功能", 10},
+        {"MM2 v2", 55},
+        {"MM2 v3", 100},
+        {"GEF", 145},
+        {"刀刃球（Rise）", 190},
+        {"競爭者v1（oreo）", 235},
+        {"競爭者v2（noks）", 280},
+        {"Blox Fruit", 325},
+        {"偷走一顆蛋", 370},
+        {"培養花園2", 415},
+        {"貝瑞的監獄逃跑", 460},
+    }
+
+    for _, item in ipairs(ordered) do
+        setButtonY(gamesPage, item[1], item[2])
+    end
+
+    gamesPage.CanvasSize = UDim2.new(0, 0, 0, 515)
+    return true
+end
+
+local function arrangePlayerPage()
+    local playerPage = findPageByButton({
+        "時間倒轉（Flashback）",
+        "防擊飛（Ultra Instinct）",
+        "開啟／關閉存檔點工具（小紅球）",
+    })
+
+    if not playerPage then
+        return false
+    end
+
+    createButtonIfMissing(playerPage, "PenguinHubFEMotorcycle", "FE 摩托車", 990, function()
+        runRemote("https://rawscripts.net/raw/Universal-Script-FE-Silly-Car-55734", "FE 摩托車")
+    end)
+
+    playerPage.CanvasSize = UDim2.new(0, 0, 0, 1045)
+    return true
+end
+
+local function arrangeVisualPage()
+    local visualPage = findPageByButton({
+        "修改天空（點擊展開）",
+        "全亮模式（Full Bright）ON / OFF",
+        "開啟／關閉自由視角工具（右側相機）",
+    })
+
+    if not visualPage then
+        return false
+    end
+
+    createButtonIfMissing(visualPage, "PenguinHubLockButton", "鎖頭", 630, function()
+        runRemote(LOCK_URL, "鎖頭")
+    end)
+
+    visualPage.CanvasSize = UDim2.new(0, 0, 0, 690)
+    return true
+end
+
+local function arrangeActionPage()
+    local actionPage = findPageByButton({
+        "專業動畫包（Emote Pack）",
+        "行走動畫腳本",
+    })
+
+    if not actionPage then
+        return false
+    end
+
+    createButtonIfMissing(actionPage, "PenguinHubAnimationV2", "專業動畫包v2", 100, function()
+        runRemote("https://rawscripts.net/raw/Universal-Script-FREE-BUNDLES-l-FE-241758", "專業動畫包v2")
+    end)
+
+    actionPage.CanvasSize = UDim2.new(0, 0, 0, 150)
+    return true
+end
+
+local function arrangeOtherPages()
+    local translatePage = findPageByButton({"全自動翻譯（先點我）"})
+    local itemsPage = findPageByButton({"獲得趣味寶劍（經典握姿）"})
+    local systemPage = findPageByButton({"重置玩家設定（全部 OFF）"})
+    local teleportPage = findPageByButton({"一鍵快速換服（Server Hop）"})
+
+    if translatePage then
+        translatePage.CanvasSize = UDim2.new(0, 0, 0, 65)
+    end
+    if itemsPage then
+        itemsPage.CanvasSize = UDim2.new(0, 0, 0, 150)
+    end
+    if systemPage then
+        systemPage.CanvasSize = UDim2.new(0, 0, 0, 65)
+    end
+    if teleportPage then
+        teleportPage.CanvasSize = UDim2.new(0, 0, 0, 315)
+    end
+end
+
+-- 等待完整 Hub UI 建立完成，再整理版面與補回缺少按鈕。
+task.spawn(function()
+    for _ = 1, 80 do
+        local playerReady = arrangePlayerPage()
+        local visualReady = arrangeVisualPage()
+        local actionReady = arrangeActionPage()
+        local gamesReady = arrangeGamePage()
+
+        arrangeOtherPages()
+
+        if playerReady and visualReady and actionReady and gamesReady then
+            notify("湊企鵝Hub", "完整功能已保留，所有分頁已整理完成")
+            break
+        end
+
+        task.wait(0.25)
+    end
+end)
