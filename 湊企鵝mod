@@ -1,0 +1,1047 @@
+--====================================================
+-- 湊企鵝mod｜完整整合版（修正懸浮球 + 可滑動）
+--====================================================
+
+local Players = game:GetService("Players")
+local Lighting = game:GetService("Lighting")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local TweenService = game:GetService("TweenService")
+local ContentProvider = game:GetService("ContentProvider")
+
+local Player = Players.LocalPlayer
+local PlayerGui = Player:WaitForChild("PlayerGui")
+
+local PREFIX = "PM_" .. tostring(math.random(100000, 999999)) .. "_"
+local ORB_IMAGE = "rbxassetid://125797550774730"
+local MINECRAFT_URL = "https://pastebin.com/raw/Cb9ExUkB"
+local BLACK_TEXTURE_URL = "https://pastebin.com/raw/xWZRF6Py"
+local STRETCH_URL = "https://rawscripts.net/raw/Universal-Script-Stretched-Resolution-4:3-rest-aspect-ratio-226525"
+local Terrain = workspace:FindFirstChildOfClass("Terrain")
+
+--==================================================
+-- 清除GUI
+--==================================================
+for _, obj in ipairs(PlayerGui:GetChildren()) do
+    if obj:IsA("ScreenGui") and (obj.Name:find("PenguinMod") or obj.Name:find("PM_")) then
+        pcall(function() obj:Destroy() end)
+    end
+end
+
+--==================================================
+-- 狀態
+--==================================================
+local lightEnabled, fpsEnabled, minecraftEnabled, rainEnabled = false, false, false, false
+local blackTextureEnabled = false
+local stretchEnabled = false
+local cycle, cycleToken = false, 0
+local rainAmount, rainDragging = 0.55, false
+local rainFolder, rainConnection, rainDrops = nil, nil, {}
+local orbDragging, orbMoved, dragStart, orbStart = false, false, nil, nil
+
+local rotationCrosshairEnabled, rotationCrosshairGui = false, nil
+local rotationCrosshairHolder, rotationCrosshairConnection = nil, nil
+local rotationCrosshairLines, rotationCrosshairRotation = {}, 0
+
+local techCrosshairEnabled, techCrosshairGui = false, nil
+local techCrosshairConnection, techCrosshairObjects = nil, {}
+
+local blackDiamondEnabled, blackDiamondGui = false, nil
+local blackDiamondConnection, blackDiamondObjects = nil, {}
+
+local fpsGrayEffect, fpsGrayAtmosphere = nil, nil
+local rgbObjects, savedLighting, savedTerrain = {}, {}, {}
+local savedParts, savedVisuals, savedEffects, savedSky = {}, {}, {}, {}
+
+local toast, toastSub, toastStroke, toastToken = nil, nil, nil, 0
+local main, timeMenu, weatherMenu, settingMenu, crosshairMenu = nil, nil, nil, nil, nil
+local statusLabel, toggleButton, timeButton, weatherButton = nil, nil, nil, nil
+local fpsButton, minecraftButton, blackTextureButton, stretchButton = nil, nil, nil, nil
+local rotationButton, techButton, blackDiamondButton = nil, nil, nil
+
+--==================================================
+-- 基礎函數
+--==================================================
+local function safeSet(obj, prop, val) if obj then pcall(function() obj[prop] = val end) end end
+
+local function addCorner(obj, r)
+    local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, r); c.Parent = obj
+end
+
+local function rgbColor(speed, offset)
+    return Color3.fromHSV(((os.clock() * speed) + (offset or 0)) % 1, 0.58, 0.93)
+end
+
+local function addRGB(obj, prop) table.insert(rgbObjects, {object = obj, property = prop}) end
+
+local function addStroke(obj, thickness)
+    local s = Instance.new("UIStroke"); s.Thickness = thickness or 2
+    s.Transparency = 0.08; s.Parent = obj; addRGB(s, "Color"); return s
+end
+
+RunService.RenderStepped:Connect(function()
+    for i, data in ipairs(rgbObjects) do
+        if data.object and data.object.Parent then
+            pcall(function() data.object[data.property] = rgbColor(0.08, i * 0.025) end)
+        end
+    end
+end)
+
+local function createButton(parent, y, text, color, height)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -30, 0, height or 40)
+    b.Position = UDim2.fromOffset(15, y)
+    b.BackgroundColor3 = color; b.Text = text
+    b.TextColor3 = Color3.fromRGB(242, 242, 242); b.TextSize = 16
+    b.Font = Enum.Font.GothamBold; b.ZIndex = 1100; b.Parent = parent
+    addCorner(b, 10); addStroke(b, 1.5); return b
+end
+
+-- 建立可滾動的選單
+local function createMenu(width, height, canvasHeight)
+    local f = Instance.new("Frame")
+    f.Size = UDim2.fromOffset(width, height)
+    f.Position = UDim2.new(0.5, -width/2, 0.5, -height/2)
+    f.BackgroundColor3 = Color3.fromRGB(24, 27, 39)
+    f.Visible = false; f.ZIndex = 1000; f.Parent = gui
+    addCorner(f, 16); addStroke(f, 2)
+
+    local scroll = Instance.new("ScrollingFrame")
+    scroll.Name = "Scroll"
+    scroll.Size = UDim2.new(1, 0, 1, 0)
+    scroll.Position = UDim2.fromOffset(0, 0)
+    scroll.BackgroundTransparency = 1
+    scroll.BorderSizePixel = 0
+    scroll.ScrollBarThickness = 6
+    scroll.ScrollBarImageColor3 = Color3.fromRGB(180, 180, 200)
+    scroll.ScrollBarImageTransparency = 0.3
+    scroll.CanvasSize = UDim2.new(0, 0, 0, canvasHeight or height)
+    scroll.ZIndex = 1050
+    scroll.Parent = f
+
+    return f
+end
+
+local function getScroll(menu)
+    return menu:FindFirstChild("Scroll")
+end
+
+local function createTitle(parent, text)
+    local l = Instance.new("TextLabel")
+    l.Size = UDim2.new(1, -30, 0, 42); l.Position = UDim2.fromOffset(15, 8)
+    l.BackgroundTransparency = 1; l.Text = text
+    l.TextColor3 = Color3.fromRGB(230, 215, 145); l.TextSize = 22
+    l.Font = Enum.Font.GothamBold; l.ZIndex = 1100; l.Parent = parent
+    addRGB(l, "TextColor3")
+    return l
+end
+
+--==================================================
+-- 準心核心：移除函式
+--==================================================
+local function removeRotatingCrosshair()
+    rotationCrosshairEnabled = false
+    if rotationCrosshairConnection then rotationCrosshairConnection:Disconnect(); rotationCrosshairConnection = nil end
+    if rotationCrosshairGui then rotationCrosshairGui:Destroy(); rotationCrosshairGui = nil end
+    rotationCrosshairHolder = nil; table.clear(rotationCrosshairLines)
+end
+
+local function removeTechCrosshair()
+    techCrosshairEnabled = false
+    if techCrosshairConnection then techCrosshairConnection:Disconnect(); techCrosshairConnection = nil end
+    if techCrosshairGui then techCrosshairGui:Destroy(); techCrosshairGui = nil end
+    table.clear(techCrosshairObjects)
+end
+
+local function removeBlackDiamondCrosshair()
+    blackDiamondEnabled = false
+    if blackDiamondConnection then blackDiamondConnection:Disconnect(); blackDiamondConnection = nil end
+    if blackDiamondGui then blackDiamondGui:Destroy(); blackDiamondGui = nil end
+    table.clear(blackDiamondObjects)
+end
+
+--==================================================
+-- 儲存原始設定
+--==================================================
+for _, p in ipairs({"Technology","GlobalShadows","Brightness","ClockTime","ExposureCompensation","Ambient","OutdoorAmbient","ColorShift_Top","ColorShift_Bottom","EnvironmentDiffuseScale","EnvironmentSpecularScale","ShadowSoftness","FogColor","FogStart","FogEnd"}) do
+    local ok, v = pcall(function() return Lighting[p] end)
+    if ok then savedLighting[p] = v end
+end
+if Terrain then
+    for _, p in ipairs({"WaterColor","WaterReflectance","WaterTransparency","WaterWaveSize","WaterWaveSpeed"}) do
+        local ok, v = pcall(function() return Terrain[p] end)
+        if ok then savedTerrain[p] = v end
+    end
+end
+for _, obj in ipairs(Lighting:GetChildren()) do
+    if obj:IsA("Sky") or obj:IsA("Atmosphere") or obj:IsA("BloomEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") then
+        table.insert(savedEffects, obj:Clone())
+        if obj:IsA("Sky") then table.insert(savedSky, obj:Clone()) end
+    end
+end
+
+--==================================================
+-- GUI建立
+--==================================================
+gui = Instance.new("ScreenGui")
+gui.Name = PREFIX .. "MainGui"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+gui.DisplayOrder = 999999
+gui.Parent = PlayerGui
+
+--==================================================
+-- Toast
+--==================================================
+toast = Instance.new("TextLabel")
+toast.Size = UDim2.fromOffset(315, 76); toast.Position = UDim2.new(1, -330, 0, 25)
+toast.BackgroundColor3 = Color3.fromRGB(22, 25, 36); toast.BackgroundTransparency = 1
+toast.TextColor3 = Color3.fromRGB(245, 245, 245); toast.TextTransparency = 1
+toast.TextSize = 18; toast.Font = Enum.Font.GothamBold
+toast.TextYAlignment = Enum.TextYAlignment.Top; toast.ZIndex = 2000; toast.Parent = gui
+addCorner(toast, 14)
+toastStroke = addStroke(toast, 2); toastStroke.Transparency = 1
+
+toastSub = Instance.new("TextLabel")
+toastSub.Size = UDim2.new(1, 0, 0, 20); toastSub.Position = UDim2.new(0, 0, 1, -25)
+toastSub.BackgroundTransparency = 1; toastSub.TextColor3 = Color3.fromRGB(175, 183, 198)
+toastSub.TextSize = 12; toastSub.Font = Enum.Font.Gotham
+toastSub.TextTransparency = 1; toastSub.ZIndex = 2001; toastSub.Parent = toast
+
+local function showToast(text, sub)
+    toastToken += 1; local token = toastToken
+    toast.Text = text; toastSub.Text = sub or ""
+    toast.BackgroundTransparency = 0.1; toast.TextTransparency = 0
+    toastSub.TextTransparency = 0; toastStroke.Transparency = 0.12
+    task.delay(2.4, function()
+        if token ~= toastToken then return end
+        local info = TweenInfo.new(0.6)
+        TweenService:Create(toast, info, {BackgroundTransparency = 1, TextTransparency = 1}):Play()
+        TweenService:Create(toastSub, info, {TextTransparency = 1}):Play()
+        TweenService:Create(toastStroke, info, {Transparency = 1}):Play()
+    end)
+end
+
+--==================================================
+-- 懸浮球
+--==================================================
+local orb = Instance.new("ImageButton")
+orb.Name = PREFIX .. "Orb"; orb.Size = UDim2.fromOffset(64, 64)
+orb.Position = UDim2.new(0, 22, 0.5, -32); orb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+orb.Image = ORB_IMAGE; orb.ScaleType = Enum.ScaleType.Crop
+orb.ZIndex = 1200; orb.Parent = gui; addCorner(orb, 32); addStroke(orb, 3)
+
+local orbFallback = Instance.new("TextLabel")
+orbFallback.Size = UDim2.fromScale(1, 1); orbFallback.BackgroundTransparency = 1
+orbFallback.Text = "湊"; orbFallback.TextColor3 = Color3.fromRGB(245, 245, 245)
+orbFallback.TextSize = 23; orbFallback.Font = Enum.Font.GothamBold
+orbFallback.ZIndex = 1201; orbFallback.Parent = orb
+
+task.spawn(function()
+    local loaded = false
+    pcall(function() ContentProvider:PreloadAsync({orb}); loaded = orb.IsLoaded end)
+    orbFallback.Visible = not loaded
+end)
+
+--==================================================
+-- 進場動畫
+--==================================================
+local loading = Instance.new("Frame")
+loading.Size = UDim2.fromScale(1, 1); loading.BackgroundColor3 = Color3.fromRGB(8, 10, 18)
+loading.BackgroundTransparency = 0.06; loading.ZIndex = 3000; loading.Parent = gui
+
+local smokeHolder = Instance.new("Frame")
+smokeHolder.Size = UDim2.fromOffset(280, 280); smokeHolder.Position = UDim2.new(0.5, -140, 0.5, -175)
+smokeHolder.BackgroundTransparency = 1; smokeHolder.ZIndex = 3001; smokeHolder.Parent = loading
+
+local smokeParts = {}
+for i = 1, 14 do
+    local part = Instance.new("Frame")
+    local angle = math.rad(i / 14 * 360)
+    local radius = 64 + (i % 3) * 16
+    local size = 42 + (i % 4) * 8
+    part.Size = UDim2.fromOffset(size, size)
+    part.Position = UDim2.new(0.5, math.cos(angle) * radius - size/2, 0.5, math.sin(angle) * radius - size/2)
+    part.BackgroundColor3 = Color3.fromRGB(145, 155, 180); part.BackgroundTransparency = 0.68
+    part.ZIndex = 3001; part.Parent = smokeHolder; addCorner(part, size)
+    table.insert(smokeParts, part)
+end
+
+local loadingTitle = Instance.new("TextLabel")
+loadingTitle.Size = UDim2.new(1, -40, 0, 70); loadingTitle.Position = UDim2.new(0, 20, 0.5, -35)
+loadingTitle.BackgroundTransparency = 1; loadingTitle.Text = "湊企鵝mod"
+loadingTitle.TextColor3 = Color3.fromRGB(220, 215, 175); loadingTitle.TextSize = 42
+loadingTitle.Font = Enum.Font.GothamBlack; loadingTitle.ZIndex = 3010; loadingTitle.Parent = loading
+
+local loadRotation = 0
+local loadConnection = RunService.RenderStepped:Connect(function(dt)
+    if not loading.Parent then return end
+    loadRotation += dt * 70; smokeHolder.Rotation = loadRotation
+    for i, part in ipairs(smokeParts) do part.BackgroundColor3 = rgbColor(0.07, i * 0.025) end
+end)
+
+task.delay(3, function()
+    if loadConnection then loadConnection:Disconnect() end
+    TweenService:Create(loading, TweenInfo.new(0.65), {BackgroundTransparency = 1}):Play()
+    task.wait(0.7); if loading then loading:Destroy() end
+    showToast("湊企鵝以加載", "小翔製作")
+end)
+
+--==================================================
+-- 光影
+--==================================================
+local function createOwned(className, name)
+    local o = Instance.new(className); o.Name = PREFIX .. name; o.Parent = Lighting; return o
+end
+
+local function clearOwned()
+    for _, o in ipairs(Lighting:GetChildren()) do
+        if o.Name:sub(1, #PREFIX) == PREFIX then o:Destroy() end
+    end
+end
+
+local function baseLighting()
+    Lighting.Technology = Enum.Technology.Future
+    Lighting.GlobalShadows = true; Lighting.ShadowSoftness = 0.09
+    Lighting.EnvironmentDiffuseScale = 0.86; Lighting.EnvironmentSpecularScale = 0.94
+end
+
+local function effects(color, density, haze, tint, brightness, contrast, saturation)
+    local at = createOwned("Atmosphere", "Atmosphere")
+    at.Color = color; at.Density = density; at.Haze = haze; at.Glare = 0.04
+    local cc = createOwned("ColorCorrectionEffect", "Color")
+    cc.TintColor = tint; cc.Brightness = brightness; cc.Contrast = contrast; cc.Saturation = saturation
+    local bl = createOwned("BloomEffect", "Bloom")
+    bl.Intensity = 0.08; bl.Size = 20; bl.Threshold = 1.1
+end
+
+local function applyPreset()
+    clearOwned(); baseLighting()
+    Lighting.ClockTime = 16.55; Lighting.Brightness = 1.95
+    Lighting.ExposureCompensation = -0.01; Lighting.Ambient = Color3.fromRGB(68, 76, 92)
+    Lighting.OutdoorAmbient = Color3.fromRGB(142, 158, 180)
+    Lighting.ColorShift_Top = Color3.fromRGB(224, 235, 238)
+    Lighting.ColorShift_Bottom = Color3.fromRGB(214, 190, 155)
+    Lighting.FogColor = Color3.fromRGB(177, 210, 226)
+    Lighting.FogStart = 700; Lighting.FogEnd = 100000
+    effects(Color3.fromRGB(185, 215, 230), 0.035, 0.2, Color3.fromRGB(248, 246, 238), 0, 0.22, 0.02)
+end
+
+local function applyDay()
+    clearOwned(); baseLighting()
+    Lighting.ClockTime = 13.1; Lighting.Brightness = 1.72
+    Lighting.ExposureCompensation = -0.04; Lighting.Ambient = Color3.fromRGB(78, 86, 103)
+    Lighting.OutdoorAmbient = Color3.fromRGB(145, 158, 180)
+    Lighting.FogColor = Color3.fromRGB(205, 221, 232); Lighting.FogStart = 900; Lighting.FogEnd = 100000
+    effects(Color3.fromRGB(190, 218, 235), 0.035, 0.18, Color3.fromRGB(244, 248, 248), -0.015, 0.16, -0.04)
+end
+
+local function applySunset()
+    clearOwned(); baseLighting()
+    Lighting.ClockTime = 17.65; Lighting.Brightness = 2.05
+    Lighting.ExposureCompensation = 0.08; Lighting.Ambient = Color3.fromRGB(22, 25, 40)
+    Lighting.OutdoorAmbient = Color3.fromRGB(74, 82, 116)
+    Lighting.ColorShift_Top = Color3.fromRGB(255, 198, 132)
+    Lighting.ColorShift_Bottom = Color3.fromRGB(70, 86, 155)
+    Lighting.FogColor = Color3.fromRGB(250, 181, 120); Lighting.FogStart = 350; Lighting.FogEnd = 100000
+    effects(Color3.fromRGB(255, 214, 166), 0.085, 0.46, Color3.fromRGB(255, 238, 220), 0.012, 0.30, 0.14)
+end
+
+local function applyNight()
+    clearOwned(); baseLighting()
+    Lighting.ClockTime = 0.15; Lighting.Brightness = 1.16
+    Lighting.ExposureCompensation = 0.22; Lighting.Ambient = Color3.fromRGB(38, 47, 96)
+    Lighting.OutdoorAmbient = Color3.fromRGB(62, 76, 145)
+    Lighting.FogColor = Color3.fromRGB(34, 48, 112); Lighting.FogStart = 300; Lighting.FogEnd = 100000
+    local sky = createOwned("Sky", "NightSky"); local skyId = "rbxassetid://159454299"
+    sky.SkyboxBk = skyId; sky.SkyboxDn = skyId; sky.SkyboxFt = skyId
+    sky.SkyboxLf = skyId; sky.SkyboxRt = skyId; sky.SkyboxUp = skyId
+    sky.StarCount = 5000; sky.CelestialBodiesShown = true
+    effects(Color3.fromRGB(82, 112, 228), 0.055, 0.3, Color3.fromRGB(175, 198, 255), 0.035, 0.27, 0.1)
+end
+
+local function applyFog()
+    clearOwned(); baseLighting()
+    Lighting.ClockTime = 17.85; Lighting.Brightness = 1.9
+    Lighting.ExposureCompensation = 0.06; Lighting.Ambient = Color3.fromRGB(24, 28, 44)
+    Lighting.OutdoorAmbient = Color3.fromRGB(76, 84, 118)
+    Lighting.FogColor = Color3.fromRGB(205, 170, 145); Lighting.FogStart = 0; Lighting.FogEnd = 260
+    effects(Color3.fromRGB(220, 205, 198), 0.5, 2.45, Color3.fromRGB(250, 225, 208), 0.01, 0.25, 0.02)
+end
+
+local function selectMode(mode, name)
+    cycleToken += 1; cycle = false; lightEnabled = true
+    if mode == "預設光影" then applyPreset()
+    elseif mode == "白天" then applyDay()
+    elseif mode == "夜間" then applyNight()
+    elseif mode == "起霧" then applyFog()
+    else applySunset() end
+    statusLabel.Text = "目前狀態：" .. name; timeButton.Text = "當前時間：" .. name
+    toggleButton.Text = "關閉光影"; main.Visible = true
+    timeMenu.Visible = false; weatherMenu.Visible = false
+    settingMenu.Visible = false; crosshairMenu.Visible = false
+    showToast(name .. "以載入", "小翔製作")
+end
+
+--==================================================
+-- 主介面（可滑動）
+--==================================================
+main = createMenu(320, 380, 450)
+local mainScroll = getScroll(main)
+createTitle(mainScroll, "湊企鵝mod")
+
+statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -30, 0, 25); statusLabel.Position = UDim2.fromOffset(15, 55)
+statusLabel.BackgroundTransparency = 1; statusLabel.Text = "目前狀態：未開啟"
+statusLabel.TextColor3 = Color3.fromRGB(205, 215, 230); statusLabel.TextSize = 14
+statusLabel.Font = Enum.Font.Gotham; statusLabel.ZIndex = 1100; statusLabel.Parent = mainScroll
+
+toggleButton = createButton(mainScroll, 85, "開啟光影", Color3.fromRGB(58, 75, 100))
+timeButton = createButton(mainScroll, 135, "目前時間：夕陽", Color3.fromRGB(65, 95, 112))
+weatherButton = createButton(mainScroll, 185, "目前天氣：晴天", Color3.fromRGB(65, 115, 105))
+local crosshairPageButton = createButton(mainScroll, 235, "自訂準心", Color3.fromRGB(90, 90, 125))
+local settingsPageButton = createButton(mainScroll, 285, "畫面設定", Color3.fromRGB(100, 75, 135))
+local restoreButton = createButton(mainScroll, 335, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
+
+--==================================================
+-- 畫面設定頁面
+--==================================================
+settingMenu = createMenu(320, 300, 320)
+local settingScroll = getScroll(settingMenu)
+createTitle(settingScroll, "畫面設定")
+fpsButton = createButton(settingScroll, 52, "增加FPS", Color3.fromRGB(70, 110, 95), 40)
+minecraftButton = createButton(settingScroll, 105, "麥塊紋理包", Color3.fromRGB(105, 92, 68), 40)
+blackTextureButton = createButton(settingScroll, 158, "黑色紋理", Color3.fromRGB(40, 40, 45), 40)
+stretchButton = createButton(settingScroll, 211, "螢幕拉伸 (640x480)", Color3.fromRGB(60, 80, 120), 40)
+local settingDone = createButton(settingScroll, 264, "完成", Color3.fromRGB(92, 65, 76), 38)
+
+--==================================================
+-- 時間頁面
+--==================================================
+timeMenu = createMenu(320, 380, 400)
+local timeScroll = getScroll(timeMenu)
+createTitle(timeScroll, "當前時間")
+local presetButton = createButton(timeScroll, 52, "預設光影", Color3.fromRGB(58, 125, 145), 38)
+local dayButton = createButton(timeScroll, 96, "白天", Color3.fromRGB(80, 120, 145), 38)
+local nightButton = createButton(timeScroll, 140, "夜間／星空", Color3.fromRGB(45, 55, 110), 38)
+local fogButton = createButton(timeScroll, 184, "起霧", Color3.fromRGB(100, 105, 120), 38)
+local sunsetButton = createButton(timeScroll, 228, "夕陽", Color3.fromRGB(155, 92, 58), 38)
+local cycleButton = createButton(timeScroll, 272, "日夜循環", Color3.fromRGB(62, 135, 96), 38)
+local timeDone = createButton(timeScroll, 328, "完成", Color3.fromRGB(92, 65, 76), 38)
+
+--==================================================
+-- 天氣頁面
+--==================================================
+weatherMenu = createMenu(320, 280, 300)
+local weatherScroll = getScroll(weatherMenu)
+createTitle(weatherScroll, "當前天氣")
+local rainButton = createButton(weatherScroll, 52, "下雨", Color3.fromRGB(75, 90, 115), 38)
+local sunnyButton = createButton(weatherScroll, 98, "晴天", Color3.fromRGB(75, 125, 105), 38)
+
+local rainLabel = Instance.new("TextLabel")
+rainLabel.Size = UDim2.new(1, -30, 0, 24); rainLabel.Position = UDim2.fromOffset(15, 145)
+rainLabel.BackgroundTransparency = 1; rainLabel.Text = "雨量：中"
+rainLabel.TextColor3 = Color3.fromRGB(210, 220, 235); rainLabel.TextSize = 15
+rainLabel.Font = Enum.Font.GothamBold; rainLabel.ZIndex = 1100; rainLabel.Parent = weatherScroll
+
+local rainTrack = Instance.new("Frame")
+rainTrack.Size = UDim2.new(1, -40, 0, 8); rainTrack.Position = UDim2.fromOffset(20, 178)
+rainTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
+rainTrack.ZIndex = 1100; rainTrack.Parent = weatherScroll; addCorner(rainTrack, 5)
+
+local rainKnob = Instance.new("TextButton")
+rainKnob.Size = UDim2.fromOffset(24, 24); rainKnob.Position = UDim2.new(rainAmount, -12, 0.5, -12)
+rainKnob.BackgroundColor3 = Color3.fromRGB(220, 200, 120); rainKnob.Text = ""
+rainKnob.ZIndex = 1200; rainKnob.Parent = rainTrack; addCorner(rainKnob, 20); addStroke(rainKnob, 2)
+local weatherDone = createButton(weatherScroll, 225, "完成", Color3.fromRGB(92, 65, 76), 38)
+
+--==================================================
+-- 準心頁面
+--==================================================
+crosshairMenu = createMenu(320, 280, 300)
+local crosshairScroll = getScroll(crosshairMenu)
+createTitle(crosshairScroll, "自訂準心")
+rotationButton = createButton(crosshairScroll, 52, "開啟旋轉準心", Color3.fromRGB(70, 110, 95), 40)
+techButton = createButton(crosshairScroll, 105, "開啟科技準心", Color3.fromRGB(48, 105, 78), 40)
+blackDiamondButton = createButton(crosshairScroll, 158, "開啟黑色菱形準星", Color3.fromRGB(30, 30, 30), 40)
+local crosshairDone = createButton(crosshairScroll, 211, "完成", Color3.fromRGB(92, 65, 76), 38)
+
+--==================================================
+-- 彩色旋轉十字準心
+--==================================================
+local function createRotatingLine(parent, size, position)
+    local line = Instance.new("Frame")
+    line.Size = size; line.Position = position
+    line.AnchorPoint = Vector2.new(0.5, 0.5)
+    line.BackgroundColor3 = Color3.fromRGB(80, 255, 100)
+    line.BorderSizePixel = 0; line.ZIndex = 5000; line.Parent = parent
+    addCorner(line, 2)
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1.5; stroke.Color = Color3.fromRGB(10, 10, 10); stroke.Parent = line
+    table.insert(rotationCrosshairLines, line)
+end
+
+local function createRotatingCrosshair()
+    removeTechCrosshair(); removeBlackDiamondCrosshair(); removeRotatingCrosshair()
+    rotationCrosshairEnabled = true; rotationCrosshairRotation = 0
+
+    rotationCrosshairGui = Instance.new("ScreenGui")
+    rotationCrosshairGui.Name = PREFIX .. "Crosshair"; rotationCrosshairGui.ResetOnSpawn = false
+    rotationCrosshairGui.IgnoreGuiInset = true; rotationCrosshairGui.DisplayOrder = 1000000
+    rotationCrosshairGui.Parent = PlayerGui
+
+    rotationCrosshairHolder = Instance.new("Frame")
+    rotationCrosshairHolder.Size = UDim2.fromOffset(75, 75)
+    rotationCrosshairHolder.Position = UDim2.fromScale(0.5, 0.5)
+    rotationCrosshairHolder.AnchorPoint = Vector2.new(0.5, 0.5)
+    rotationCrosshairHolder.BackgroundTransparency = 1
+    rotationCrosshairHolder.ZIndex = 5000; rotationCrosshairHolder.Parent = rotationCrosshairGui
+
+    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(5, 22), UDim2.new(0.5, 0, 0.5, -18))
+    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(5, 22), UDim2.new(0.5, 0, 0.5, 18))
+    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(22, 5), UDim2.new(0.5, -18, 0.5, 0))
+    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(22, 5), UDim2.new(0.5, 18, 0.5, 0))
+
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.fromOffset(4, 4); dot.Position = UDim2.fromScale(0.5, 0.5)
+    dot.AnchorPoint = Vector2.new(0.5, 0.5); dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    dot.BorderSizePixel = 0; dot.ZIndex = 5002; dot.Parent = rotationCrosshairHolder; addCorner(dot, 4)
+
+    rotationCrosshairConnection = RunService.RenderStepped:Connect(function(dt)
+        if not rotationCrosshairEnabled then return end
+        rotationCrosshairRotation += dt * 65
+        rotationCrosshairHolder.Rotation = rotationCrosshairRotation
+        local color = rgbColor(0.12, 0.15)
+        for _, line in ipairs(rotationCrosshairLines) do
+            if line and line.Parent then line.BackgroundColor3 = color end
+        end
+        dot.BackgroundColor3 = color
+    end)
+end
+
+--==================================================
+-- 科技準心
+--==================================================
+local function addTechCircle(parent, size, thickness)
+    local circle = Instance.new("Frame")
+    circle.Size = UDim2.fromOffset(size, size); circle.Position = UDim2.fromScale(0.5, 0.5)
+    circle.AnchorPoint = Vector2.new(0.5, 0.5); circle.BackgroundTransparency = 1
+    circle.ZIndex = 5090; circle.Parent = parent; addCorner(circle, size)
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = thickness; stroke.Color = Color3.fromRGB(65, 245, 105)
+    stroke.Parent = circle; table.insert(techCrosshairObjects, stroke)
+end
+
+local function addTechLine(parent, size, position)
+    local line = Instance.new("Frame")
+    line.Size = size; line.Position = position
+    line.AnchorPoint = Vector2.new(0.5, 0.5)
+    line.BackgroundColor3 = Color3.fromRGB(70, 255, 110)
+    line.BorderSizePixel = 0; line.ZIndex = 5100; line.Parent = parent; addCorner(line, 2)
+    local stroke = Instance.new("UIStroke")
+    stroke.Thickness = 1.3; stroke.Color = Color3.fromRGB(15, 80, 35); stroke.Parent = line
+    table.insert(techCrosshairObjects, line)
+end
+
+local function createTechCrosshair()
+    removeRotatingCrosshair(); removeBlackDiamondCrosshair(); removeTechCrosshair()
+    techCrosshairEnabled = true
+
+    techCrosshairGui = Instance.new("ScreenGui")
+    techCrosshairGui.Name = PREFIX .. "TechCrosshair"; techCrosshairGui.ResetOnSpawn = false
+    techCrosshairGui.IgnoreGuiInset = true; techCrosshairGui.DisplayOrder = 1000001
+    techCrosshairGui.Parent = PlayerGui
+
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.fromOffset(90, 90); holder.Position = UDim2.fromScale(0.5, 0.5)
+    holder.AnchorPoint = Vector2.new(0.5, 0.5); holder.BackgroundTransparency = 1
+    holder.ZIndex = 5090; holder.Parent = techCrosshairGui
+
+    addTechCircle(holder, 88, 1.2); addTechCircle(holder, 62, 2)
+    addTechLine(holder, UDim2.fromOffset(5, 23), UDim2.new(0.5, 0, 0.5, -20))
+    addTechLine(holder, UDim2.fromOffset(5, 23), UDim2.new(0.5, 0, 0.5, 20))
+    addTechLine(holder, UDim2.fromOffset(23, 5), UDim2.new(0.5, -20, 0.5, 0))
+    addTechLine(holder, UDim2.fromOffset(23, 5), UDim2.new(0.5, 20, 0.5, 0))
+
+    local dot = Instance.new("Frame")
+    dot.Size = UDim2.fromOffset(5, 5); dot.Position = UDim2.fromScale(0.5, 0.5)
+    dot.AnchorPoint = Vector2.new(0.5, 0.5); dot.BackgroundColor3 = Color3.fromRGB(70, 255, 110)
+    dot.BorderSizePixel = 0; dot.ZIndex = 5110; dot.Parent = holder; addCorner(dot, 5)
+    table.insert(techCrosshairObjects, dot)
+
+    techCrosshairConnection = RunService.RenderStepped:Connect(function()
+        if not techCrosshairEnabled then return end
+        local pulse = (math.sin(os.clock() * 3) + 1) / 2
+        local green = Color3.new(0.15 + pulse * 0.08, 0.75 + pulse * 0.25, 0.25 + pulse * 0.1)
+        for _, obj in ipairs(techCrosshairObjects) do
+            if obj and obj.Parent then
+                if obj:IsA("Frame") then obj.BackgroundColor3 = green
+                elseif obj:IsA("UIStroke") then obj.Color = green end
+            end
+        end
+    end)
+end
+
+--==================================================
+-- 黑色菱形準心
+--==================================================
+local function createBlackDiamondCrosshair()
+    removeRotatingCrosshair(); removeTechCrosshair(); removeBlackDiamondCrosshair()
+    blackDiamondEnabled = true
+
+    blackDiamondGui = Instance.new("ScreenGui")
+    blackDiamondGui.Name = PREFIX .. "BDCrosshair"; blackDiamondGui.ResetOnSpawn = false
+    blackDiamondGui.IgnoreGuiInset = true; blackDiamondGui.DisplayOrder = 1000002
+    blackDiamondGui.Parent = PlayerGui
+
+    local holder = Instance.new("Frame")
+    holder.Size = UDim2.fromOffset(80, 80); holder.Position = UDim2.fromScale(0.5, 0.5)
+    holder.AnchorPoint = Vector2.new(0.5, 0.5); holder.BackgroundTransparency = 1
+    holder.ZIndex = 5200; holder.Parent = blackDiamondGui
+
+    local size = 14
+    local thick = 2.5
+
+    local topLine = Instance.new("Frame")
+    topLine.Size = UDim2.fromOffset(size, thick)
+    topLine.Position = UDim2.new(0.5, -size/2, 0.5, -size)
+    topLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0); topLine.BorderSizePixel = 0
+    topLine.ZIndex = 5201; topLine.Parent = holder
+    table.insert(blackDiamondObjects, topLine)
+
+    local bottomLine = Instance.new("Frame")
+    bottomLine.Size = UDim2.fromOffset(size, thick)
+    bottomLine.Position = UDim2.new(0.5, -size/2, 0.5, size - thick)
+    bottomLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0); bottomLine.BorderSizePixel = 0
+    bottomLine.ZIndex = 5201; bottomLine.Parent = holder
+    table.insert(blackDiamondObjects, bottomLine)
+
+    local leftLine = Instance.new("Frame")
+    leftLine.Size = UDim2.fromOffset(thick, size)
+    leftLine.Position = UDim2.new(0.5, -size/2 - thick, 0.5, -size/2)
+    leftLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0); leftLine.BorderSizePixel = 0
+    leftLine.ZIndex = 5201; leftLine.Parent = holder
+    table.insert(blackDiamondObjects, leftLine)
+
+    local rightLine = Instance.new("Frame")
+    rightLine.Size = UDim2.fromOffset(thick, size)
+    rightLine.Position = UDim2.new(0.5, size/2, 0.5, -size/2)
+    rightLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0); rightLine.BorderSizePixel = 0
+    rightLine.ZIndex = 5201; rightLine.Parent = holder
+    table.insert(blackDiamondObjects, rightLine)
+
+    local centerDot = Instance.new("Frame")
+    centerDot.Size = UDim2.fromOffset(4, 4)
+    centerDot.Position = UDim2.new(0.5, -2, 0.5, -2)
+    centerDot.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    centerDot.BorderSizePixel = 0
+    centerDot.ZIndex = 5202; centerDot.Parent = holder
+    table.insert(blackDiamondObjects, centerDot)
+
+    local crossH = Instance.new("Frame")
+    crossH.Size = UDim2.fromOffset(2, 8)
+    crossH.Position = UDim2.new(0.5, -1, 0.5, -4)
+    crossH.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    crossH.BorderSizePixel = 0
+    crossH.ZIndex = 5203; crossH.Parent = holder
+    table.insert(blackDiamondObjects, crossH)
+
+    local crossV = Instance.new("Frame")
+    crossV.Size = UDim2.fromOffset(8, 2)
+    crossV.Position = UDim2.new(0.5, -4, 0.5, -1)
+    crossV.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+    crossV.BorderSizePixel = 0
+    crossV.ZIndex = 5203; crossV.Parent = holder
+    table.insert(blackDiamondObjects, crossV)
+
+    blackDiamondConnection = RunService.RenderStepped:Connect(function()
+        if not blackDiamondEnabled then return end
+        local pulse = (math.sin(os.clock() * 2) + 1) / 2
+        local alpha = 0.75 + pulse * 0.25
+        for _, obj in ipairs(blackDiamondObjects) do
+            if obj and obj.Parent then obj.BackgroundTransparency = 1 - alpha end
+        end
+    end)
+end
+
+--==================================================
+-- FPS
+--==================================================
+local function enableFPS()
+    if fpsEnabled then showToast("增加FPS已載入", "小翔製作"); return end
+    fpsEnabled = true; table.clear(savedParts); table.clear(savedVisuals)
+
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("BasePart") and not obj:IsDescendantOf(gui) and not obj.Name:find(PREFIX) then
+            table.insert(savedParts, {part = obj, material = obj.Material, color = obj.Color, reflectance = obj.Reflectance, castShadow = obj.CastShadow, transparency = obj.Transparency})
+            obj.Material = Enum.Material.SmoothPlastic; obj.Reflectance = 0; obj.CastShadow = false
+        end
+    end
+    for _, obj in ipairs(workspace:GetDescendants()) do
+        if obj:IsA("Decal") or obj:IsA("Texture") or obj:IsA("SurfaceAppearance") or obj:IsA("ParticleEmitter") or obj:IsA("Trail") or obj:IsA("Beam") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") or obj:IsA("PointLight") or obj:IsA("SpotLight") or obj:IsA("SurfaceLight") then
+            local data = {object = obj, enabled = nil, transparency = nil}
+            if obj:IsA("Decal") or obj:IsA("Texture") then data.transparency = obj.Transparency; obj.Transparency = 1
+            elseif obj:IsA("SurfaceAppearance") then data.enabled = obj.Enabled; obj.Enabled = false
+            else data.enabled = obj.Enabled; obj.Enabled = false end
+            table.insert(savedVisuals, data)
+        end
+    end
+    for _, obj in ipairs(Lighting:GetChildren()) do
+        if obj:IsA("Sky") then table.insert(savedSky, obj:Clone()); obj:Destroy() end
+    end
+
+    fpsGrayEffect = Instance.new("ColorCorrectionEffect")
+    fpsGrayEffect.Name = PREFIX .. "FPSGray"; fpsGrayEffect.Brightness = -0.03
+    fpsGrayEffect.Contrast = -0.02; fpsGrayEffect.Saturation = -1
+    fpsGrayEffect.TintColor = Color3.fromRGB(185, 185, 185); fpsGrayEffect.Parent = Lighting
+
+    fpsGrayAtmosphere = Instance.new("Atmosphere")
+    fpsGrayAtmosphere.Name = PREFIX .. "FPSAtmosphere"; fpsGrayAtmosphere.Color = Color3.fromRGB(155, 155, 155)
+    fpsGrayAtmosphere.Decay = Color3.fromRGB(155, 155, 155); fpsGrayAtmosphere.Density = 1
+    fpsGrayAtmosphere.Haze = 10; fpsGrayAtmosphere.Glare = 0; fpsGrayAtmosphere.Parent = Lighting
+
+    savedLighting.__FPS_Ambient = Lighting.Ambient; savedLighting.__FPS_OutdoorAmbient = Lighting.OutdoorAmbient
+    savedLighting.__FPS_Top = Lighting.ColorShift_Top; savedLighting.__FPS_Bottom = Lighting.ColorShift_Bottom
+    savedLighting.__FPS_Fog = Lighting.FogColor; savedLighting.__FPS_FogStart = Lighting.FogStart; savedLighting.__FPS_FogEnd = Lighting.FogEnd
+
+    Lighting.Ambient = Color3.fromRGB(135, 135, 135); Lighting.OutdoorAmbient = Color3.fromRGB(145, 145, 145)
+    Lighting.ColorShift_Top = Color3.fromRGB(145, 145, 145); Lighting.ColorShift_Bottom = Color3.fromRGB(135, 135, 135)
+    Lighting.FogColor = Color3.fromRGB(155, 155, 155); Lighting.FogStart = 0; Lighting.FogEnd = 100000
+    showToast("增加FPS已載入", "小翔製作")
+end
+
+--==================================================
+-- 麥塊紋理包
+--==================================================
+local function enableMinecraftPack()
+    if minecraftEnabled then showToast("麥紋理包已加載", "小翔製作"); return end
+    minecraftEnabled = true; minecraftButton.Text = "麥塊紋理包：已載入"
+    local success, err = pcall(function()
+        if not loadstring then error("目前環境不支援 loadstring") end
+        local source = game:HttpGet(MINECRAFT_URL)
+        local fn = loadstring(source)
+        if not fn then error("腳本腳本可用") end
+        fn()
+    end)
+    if success then showToast("麥紋理包已加載", "小翔製作")
+    else minecraftEnabled = false; minecraftButton.Text = "麥塊紋理包"; warn("麥塊紋理包加載失敗：" .. tostring(err)); showToast("麥紋理包載入失敗", "小翔製作") end
+end
+
+--==================================================
+-- 黑色紋理
+--==================================================
+local function enableBlackTexture()
+    if blackTextureEnabled then showToast("黑色紋理已載入", "小翔製作"); return end
+    blackTextureEnabled = true
+    blackTextureButton.Text = "黑色紋理：已載入"
+    local success, err = pcall(function()
+        if not loadstring then error("目前環境不支援 loadstring") end
+        local source = game:HttpGet(BLACK_TEXTURE_URL)
+        local fn = loadstring(source)
+        if not fn then error("腳本無法載入") end
+        fn()
+    end)
+    if success then
+        showToast("黑色紋理已載入", "小翔製作")
+    else
+        blackTextureEnabled = false
+        blackTextureButton.Text = "黑色紋理"
+        warn("黑色紋理載入失敗：" .. tostring(err))
+        showToast("黑色紋理載入失敗", "小翔製作")
+    end
+end
+
+--==================================================
+-- 螢幕拉伸
+--==================================================
+local function toggleStretch()
+    if stretchEnabled then
+        stretchEnabled = false
+        stretchButton.Text = "螢幕拉伸 (640x480)"
+        showToast("請重置角色以還原畫面", "小翔製作")
+    else
+        stretchEnabled = true
+        stretchButton.Text = "螢幕拉伸：已開啟"
+        local success, err = pcall(function()
+            if not loadstring then error("目前環境不支援 loadstring") end
+            local source = game:HttpGet(STRETCH_URL)
+            local fn = loadstring(source)
+            if not fn then error("腳本無法載入") end
+            fn()
+        end)
+        if success then
+            showToast("螢幕拉伸已開啟", "小翔製作")
+        else
+            stretchEnabled = false
+            stretchButton.Text = "螢幕拉伸 (640x480)"
+            warn("螢幕拉伸載入失敗：" .. tostring(err))
+            showToast("螢幕拉伸載入失敗", "小翔製作")
+        end
+    end
+end
+
+--==================================================
+-- 雨
+--==================================================
+local function stopRain()
+    if rainConnection then rainConnection:Disconnect(); rainConnection = nil end
+    if rainFolder then rainFolder:Destroy(); rainFolder = nil end
+    table.clear(rainDrops); rainEnabled = false
+end
+
+local function rainCount() return math.floor(100 + rainAmount * 900) end
+
+local function resizeRain()
+    if not rainFolder then return end
+    local folder = rainFolder:FindFirstChild("Drops"); if not folder then return end
+    while #rainDrops < rainCount() do
+        local part = Instance.new("Part")
+        part.Anchored = true; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false
+        part.Material = Enum.Material.Neon; part.Color = Color3.fromRGB(165, 198, 230)
+        part.Transparency = 0.18; part.Size = Vector3.new(0.08, math.random(34, 58) / 10, 0.08); part.Parent = folder
+        table.insert(rainDrops, {part = part, offset = Vector3.new(math.random(-70, 70), math.random(-10, 70), math.random(-70, 70)), speed = math.random(78, 122)})
+    end
+    while #rainDrops > rainCount() do
+        local drop = table.remove(rainDrops); if drop and drop.part then drop.part:Destroy() end
+    end
+end
+
+local function startRain()
+    stopRain(); rainEnabled = true
+    rainFolder = Instance.new("Folder"); rainFolder.Name = PREFIX .. "Rain"; rainFolder.Parent = workspace
+    local folder = Instance.new("Folder"); folder.Name = "Drops"; folder.Parent = rainFolder
+    resizeRain()
+    rainConnection = RunService.RenderStepped:Connect(function(dt)
+        local camera = workspace.CurrentCamera; if not camera then return end
+        for _, drop in ipairs(rainDrops) do
+            if drop.part and drop.part.Parent then
+                drop.offset -= Vector3.new(3.5, drop.speed, 2.2) * dt
+                if drop.offset.Y < -12 then drop.offset = Vector3.new(math.random(-70, 70), math.random(46, 75), math.random(-70, 70)) end
+                drop.part.Position = camera.CFrame.Position + drop.offset
+            end
+        end
+    end)
+    weatherButton.Text = "當前天氣：下雨"; showToast("下雨時加載", "小翔製作")
+end
+
+--==================================================
+-- 日夜循環
+--==================================================
+local function startCycle()
+    cycleToken += 1; local token = cycleToken
+    cycle = true; lightEnabled = true; toggleButton.Text = "關閉光影"
+    showToast("日夜循環以載入", "小翔製作")
+    task.spawn(function()
+        while cycle and token == cycleToken do
+            applyDay(); statusLabel.Text = "目前狀態：日夜循環｜白天"; task.wait(180)
+            if not cycle or token ~= cycleToken then break end
+            applySunset(); statusLabel.Text = "目前狀態：日夜循環｜夕陽"; task.wait(30)
+            if not cycle or token ~= cycleToken then break end
+            applyNight(); statusLabel.Text = "目前狀態：日夜循環｜夜間"; task.wait(60)
+        end
+    end)
+end
+
+--==================================================
+-- 還原
+--==================================================
+local function restore()
+    cycleToken += 1; cycle = false
+    stopRain(); removeRotatingCrosshair(); removeTechCrosshair(); removeBlackDiamondCrosshair(); clearOwned()
+    if fpsGrayEffect then fpsGrayEffect:Destroy(); fpsGrayEffect = nil end
+    if fpsGrayAtmosphere then fpsGrayAtmosphere:Destroy(); fpsGrayAtmosphere = nil end
+    for prop, val in pairs(savedLighting) do
+        if tostring(prop):sub(1, 6) ~= "__FPS_" then safeSet(Lighting, prop, val) end
+    end
+    if savedLighting.__FPS_Ambient then
+        Lighting.Ambient = savedLighting.__FPS_Ambient; Lighting.OutdoorAmbient = savedLighting.__FPS_OutdoorAmbient
+        Lighting.ColorShift_Top = savedLighting.__FPS_Top; Lighting.ColorShift_Bottom = savedLighting.__FPS_Bottom
+        Lighting.FogColor = savedLighting.__FPS_Fog; Lighting.FogStart = savedLighting.__FPS_FogStart; Lighting.FogEnd = savedLighting.__FPS_FogEnd
+    end
+    for prop, val in pairs(savedTerrain) do if Terrain then safeSet(Terrain, prop, val) end end
+    for _, data in ipairs(savedParts) do
+        if data.part and data.part.Parent then
+            safeSet(data.part, "Material", data.material); safeSet(data.part, "Color", data.color)
+            safeSet(data.part, "Reflectance", data.reflectance); safeSet(data.part, "CastShadow", data.castShadow)
+            safeSet(data.part, "Transparency", data.transparency)
+        end
+    end
+    for _, data in ipairs(savedVisuals) do
+        if data.object and data.object.Parent then
+            if data.transparency ~= nil then safeSet(data.object, "Transparency", data.transparency) end
+            if data.enabled ~= nil then safeSet(data.object, "Enabled", data.enabled) end
+        end
+    end
+    for _, sky in ipairs(savedSky) do if sky then sky:Clone().Parent = Lighting end end
+    for _, effect in ipairs(savedEffects) do if effect then effect:Clone().Parent = Lighting end end
+    table.clear(savedParts); table.clear(savedVisuals); table.clear(savedSky)
+    fpsEnabled = false; minecraftEnabled = false; lightEnabled = false
+    blackTextureEnabled = false
+    stretchEnabled = false
+    if fpsButton then fpsButton.Text = "增加FPS" end
+    if minecraftButton then minecraftButton.Text = "麥塊紋理包" end
+    if blackTextureButton then blackTextureButton.Text = "黑色紋理" end
+    if stretchButton then stretchButton.Text = "螢幕拉伸 (640x480)" end
+    if rotationButton then rotationButton.Text = "開啟旋轉準心" end
+    if techButton then techButton.Text = "開啟科技準心" end
+    if blackDiamondButton then blackDiamondButton.Text = "開啟黑色菱形準星" end
+end
+
+--==================================================
+-- 介面切換
+--==================================================
+local function closeAllMenus()
+    main.Visible = false; timeMenu.Visible = false; weatherMenu.Visible = false
+    settingMenu.Visible = false; crosshairMenu.Visible = false
+end
+
+timeButton.Activated:Connect(function() closeAllMenus(); timeMenu.Visible = true end)
+weatherButton.Activated:Connect(function() closeAllMenus(); weatherMenu.Visible = true end)
+
+settingsPageButton.Activated:Connect(function() closeAllMenus(); settingMenu.Visible = true end)
+crosshairPageButton.Activated:Connect(function() closeAllMenus(); crosshairMenu.Visible = true end)
+
+toggleButton.Activated:Connect(function()
+    if lightEnabled then
+        restore(); main.Visible = true; statusLabel.Text = "目前狀態：已關閉"
+        toggleButton.Text = "開啟光影"; showToast("光影已關閉", "小翔製作")
+    else selectMode("預設光影", "預設光影") end
+end)
+
+restoreButton.Activated:Connect(function()
+    restore(); main.Visible = true; statusLabel.Text = "目前狀態：已恢復"
+    toggleButton.Text = "開啟光影"; timeButton.Text = "當前時間：夕陽"
+    weatherButton.Text = "當前天氣：晴天"; showToast("具體畫面已恢復", "小翔製作")
+end)
+
+--==================================================
+-- 時間按鈕
+--==================================================
+presetButton.Activated:Connect(function() selectMode("預設光影", "預設光影") end)
+dayButton.Activated:Connect(function() selectMode("白天", "白天") end)
+nightButton.Activated:Connect(function() selectMode("夜間", "夜間／星空") end)
+fogButton.Activated:Connect(function() selectMode("起霧", "起霧") end)
+sunsetButton.Activated:Connect(function() selectMode("夕陽", "夕陽") end)
+cycleButton.Activated:Connect(function() closeAllMenus(); main.Visible = true; startCycle() end)
+timeDone.Activated:Connect(function() timeMenu.Visible = false; main.Visible = true; showToast("目前時間設定已已", "小翔製作") end)
+
+--==================================================
+-- 天氣按鈕
+--==================================================
+rainButton.Activated:Connect(function() startRain(); weatherMenu.Visible = false; main.Visible = true end)
+sunnyButton.Activated:Connect(function() stopRain(); weatherButton.Text = "當前天氣：晴天"; weatherMenu.Visible = false; main.Visible = true; showToast("晴天以加載", "小翔製作") end)
+weatherDone.Activated:Connect(function() weatherMenu.Visible = false; main.Visible = true; showToast("目前天氣設定已完成", "小翔製作") end)
+
+--==================================================
+-- 頁面設定按鈕
+--==================================================
+fpsButton.Activated:Connect(function() enableFPS(); fpsButton.Text = "增加FPS：已開啟"; statusLabel.Text = "目前狀態：增加FPS已開啟" end)
+minecraftButton.Activated:Connect(function() enableMinecraftPack() end)
+blackTextureButton.Activated:Connect(function() enableBlackTexture() end)
+stretchButton.Activated:Connect(function() toggleStretch() end)
+settingDone.Activated:Connect(function() settingMenu.Visible = false; main.Visible = true; showToast("畫面設定已完成", "小翔製作") end)
+
+--==================================================
+-- 準心按鈕
+--==================================================
+rotationButton.Activated:Connect(function()
+    if rotationCrosshairEnabled then
+        removeRotatingCrosshair(); rotationButton.Text = "開啟旋轉準心"; showToast("旋轉準心已關閉", "小翔製作")
+    else
+        removeTechCrosshair(); removeBlackDiamondCrosshair()
+        techButton.Text = "開啟科技準心"; blackDiamondButton.Text = "開啟黑色菱形準星"
+        createRotatingCrosshair(); rotationButton.Text = "關閉旋轉準心"; showToast("旋轉準心已載入", "小翔製作")
+    end
+end)
+
+techButton.Activated:Connect(function()
+    if techCrosshairEnabled then
+        removeTechCrosshair(); techButton.Text = "開啟科技準心"; showToast("科技準心已關閉", "小翔製作")
+    else
+        removeRotatingCrosshair(); removeBlackDiamondCrosshair()
+        rotationButton.Text = "開啟旋轉準心"; blackDiamondButton.Text = "開啟黑色菱形準星"
+        createTechCrosshair(); techButton.Text = "關閉科技準心"; showToast("科技準心已載入", "小翔製作")
+    end
+end)
+
+blackDiamondButton.Activated:Connect(function()
+    if blackDiamondEnabled then
+        removeBlackDiamondCrosshair(); blackDiamondButton.Text = "開啟黑色菱形準星"; showToast("黑色菱形準星已關閉", "小翔製作")
+    else
+        removeRotatingCrosshair(); removeTechCrosshair()
+        rotationButton.Text = "開啟旋轉準心"; techButton.Text = "開啟科技準心"
+        createBlackDiamondCrosshair(); blackDiamondButton.Text = "關閉黑色菱形準星"; showToast("黑色菱形準星已載入", "小翔製作")
+    end
+end)
+
+crosshairDone.Activated:Connect(function() crosshairMenu.Visible = false; main.Visible = true; showToast("自訂設定心設定已完成", "小翔製作") end)
+
+--==================================================
+-- 雨量滑桿
+--==================================================
+local function updateRain(input)
+    local width = math.max(rainTrack.AbsoluteSize.X, 1)
+    local x = input.Position.X - rainTrack.AbsolutePosition.X
+    rainAmount = math.clamp(x / width, 0.05, 1)
+    rainKnob.Position = UDim2.new(rainAmount, -12, 0.5, -12)
+    if rainAmount < 0.34 then rainLabel.Text = "雨量：小"
+    elseif rainAmount < 0.67 then rainLabel.Text = "雨量：中"
+    else rainLabel.Text = "雨量：大" end
+    if rainEnabled then resizeRain() end
+end
+
+rainTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        rainDragging = true; updateRain(input)
+    end
+end)
+
+rainKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        rainDragging = true
+    end
+end)
+
+--==================================================
+-- 懸浮球拖曳與點擊
+--==================================================
+orb.Activated:Connect(function()
+    if orbMoved then orbMoved = false; return end
+    main.Visible = not main.Visible
+    if main.Visible then
+        timeMenu.Visible = false; weatherMenu.Visible = false
+        settingMenu.Visible = false; crosshairMenu.Visible = false
+    end
+end)
+
+orb.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        orbDragging = true; orbMoved = false; dragStart = input.Position; orbStart = orb.Position
+    end
+end)
+
+UIS.InputChanged:Connect(function(input)
+    if rainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateRain(input) end
+    if orbDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        if delta.Magnitude > 8 then orbMoved = true end
+        orb.Position = UDim2.new(orbStart.X.Scale, orbStart.X.Offset + delta.X, orbStart.Y.Scale, orbStart.Y.Offset + delta.Y)
+    end
+end)
+
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        rainDragging = false; orbDragging = false
+    end
+end)
+
+--==================================================
+-- 清理
+--==================================================
+script.Destroying:Connect(function()
+    restore()
+    if gui then gui:Destroy() end
+end)
+
+print("湊企鵝mod：完整整合版已載入（可滑動介面）")
