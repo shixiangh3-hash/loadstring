@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜完整版（低血量 + 閃電 + 景深）- 修正
+-- 湊企鵝mod｜低血量警示 + 閃電打雷
 --====================================================
 
 local Players = game:GetService("Players")
@@ -989,9 +989,7 @@ UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then scaleDragging = false end
 end)
 
---====================================================
--- 畫面設定頁面（修正：高度回到 360，景深按鈕放在低血量下方）
---====================================================
+-- 畫面設定頁面（低血量警示）
 local settingMenu = createMenu(320, 360, 420)
 local settingScroll = settingMenu:FindFirstChild("Scroll")
 createTitle(settingScroll, "畫面設定")
@@ -1001,8 +999,7 @@ local blackTextureButton = createBtn(settingScroll, 158, "黑色紋理", Color3.
 local stretchButton = createBtn(settingScroll, 211, "螢幕拉伸 (640x480)", Color3.fromRGB(60, 80, 120), 40)
 local fpsCounterButton = createBtn(settingScroll, 264, "FPS 顯示器", Color3.fromRGB(50, 90, 80), 40)
 local lowHpButton = createBtn(settingScroll, 317, "低血量警示", Color3.fromRGB(130, 60, 60), 40)
-local dofButton = createBtn(settingScroll, 370, "景深模糊", Color3.fromRGB(70, 80, 120), 40)
-local settingDone = createBtn(settingScroll, 423, "完成", Color3.fromRGB(92, 65, 76), 38)
+local settingDone = createBtn(settingScroll, 370, "完成", Color3.fromRGB(92, 65, 76), 38)
 settingPageButton.Activated:Connect(function() closeAllMenus(); settingMenu.Visible = true end)
 settingDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 
@@ -1014,7 +1011,6 @@ local fpsCounterEnabled = false
 local fpsGui, fpsLabel, fpsConnection = nil, nil, nil
 local fpsFrameCount, fpsTimeElapsed = 0, 0
 
--- 低血量警示
 local lowHpEnabled = false
 local lowHpGui = nil
 local lowHpFrame = nil
@@ -1073,30 +1069,6 @@ local function toggleLowHp()
     end
 end
 lowHpButton.Activated:Connect(toggleLowHp)
-
--- 景深模糊
-local dofEnabled = false
-local dofEffect = nil
-local function toggleDOF()
-    if dofEnabled then
-        dofEnabled = false
-        if dofEffect then dofEffect:Destroy(); dofEffect = nil end
-        dofButton.Text = "景深模糊"
-        showToast("景深模糊已關閉")
-    else
-        dofEnabled = true
-        dofEffect = Instance.new("DepthOfFieldEffect")
-        dofEffect.Name = PREFIX .. "DOF"
-        dofEffect.FarIntensity = 0.45
-        dofEffect.FocusDistance = 35
-        dofEffect.InFocusRadius = 25
-        dofEffect.NearIntensity = 0.1
-        dofEffect.Parent = Lighting
-        dofButton.Text = "景深模糊：已開啟"
-        showToast("景深模糊已開啟")
-    end
-end
-dofButton.Activated:Connect(toggleDOF)
 
 fpsButton.Activated:Connect(function()
     if fpsEnabled then showToast("增加FPS已載入"); return end
@@ -1432,4 +1404,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：完整版已載入（低血量 + 閃電 + 景深）")
+print("湊企鵝mod：低血量警示 + 閃電打雷版已載入")
