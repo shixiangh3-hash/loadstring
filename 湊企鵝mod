@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜完整整合版（修正懸浮球 + 可滑動）
+-- 湊企鵝mod｜完整整合版（準心大小 + 雪花 + 快捷鍵 + 音樂）
 --====================================================
 
 local Players = game:GetService("Players")
@@ -8,6 +8,7 @@ local UIS = game:GetService("UserInputService")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local ContentProvider = game:GetService("ContentProvider")
+local SoundService = game:GetService("SoundService")
 
 local Player = Players.LocalPlayer
 local PlayerGui = Player:WaitForChild("PlayerGui")
@@ -32,11 +33,14 @@ end
 -- 狀態
 --==================================================
 local lightEnabled, fpsEnabled, minecraftEnabled, rainEnabled = false, false, false, false
+local snowEnabled = false
 local blackTextureEnabled = false
 local stretchEnabled = false
 local cycle, cycleToken = false, 0
 local rainAmount, rainDragging = 0.55, false
+local snowAmount, snowDragging = 0.55, false
 local rainFolder, rainConnection, rainDrops = nil, nil, {}
+local snowFolder, snowConnection, snowFlakes = nil, nil, {}
 local orbDragging, orbMoved, dragStart, orbStart = false, false, nil, nil
 
 local rotationCrosshairEnabled, rotationCrosshairGui = false, nil
@@ -49,15 +53,33 @@ local techCrosshairConnection, techCrosshairObjects = nil, {}
 local blackDiamondEnabled, blackDiamondGui = false, nil
 local blackDiamondConnection, blackDiamondObjects = nil, {}
 
+-- 準心大小
+local crosshairScale = 1.0
+local crosshairScaleDragging = false
+local rotationScaleBase = 75
+local techScaleBase = 90
+local bdScaleBase = 80
+
+-- FPS 顯示器
+local fpsCounterEnabled = false
+local fpsGui, fpsLabel, fpsConnection = nil, nil, nil
+local fpsFrameCount, fpsTimeElapsed, fpsCurrent = 0, 0, 0
+
+-- 音樂
+local musicSound = nil
+local musicPlaying = false
+
 local fpsGrayEffect, fpsGrayAtmosphere = nil, nil
 local rgbObjects, savedLighting, savedTerrain = {}, {}, {}
 local savedParts, savedVisuals, savedEffects, savedSky = {}, {}, {}, {}
 
 local toast, toastSub, toastStroke, toastToken = nil, nil, nil, 0
-local main, timeMenu, weatherMenu, settingMenu, crosshairMenu = nil, nil, nil, nil, nil
+local main, timeMenu, weatherMenu, settingMenu, crosshairMenu, musicMenu = nil, nil, nil, nil, nil, nil
 local statusLabel, toggleButton, timeButton, weatherButton = nil, nil, nil, nil
 local fpsButton, minecraftButton, blackTextureButton, stretchButton = nil, nil, nil, nil
 local rotationButton, techButton, blackDiamondButton = nil, nil, nil
+local fpsCounterButton = nil
+local musicPageButton, musicIdBox, musicPlayButton, musicStopButton = nil, nil, nil, nil
 
 --==================================================
 -- 基礎函數
@@ -97,7 +119,6 @@ local function createButton(parent, y, text, color, height)
     addCorner(b, 10); addStroke(b, 1.5); return b
 end
 
--- 建立可滾動的選單
 local function createMenu(width, height, canvasHeight)
     local f = Instance.new("Frame")
     f.Size = UDim2.fromOffset(width, height)
@@ -174,7 +195,7 @@ if Terrain then
     end
 end
 for _, obj in ipairs(Lighting:GetChildren()) do
-    if obj:IsA("Sky") or obj:IsA("Atmosphere") or obj:IsA("BloomEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") then
+    if obj:IsA("Sky") or obj:IsA("Atmosphere") or obj:IsA("BloomEffect") or obj:IsA("ColorCorrectionEffect") or obj:IsA("SunRaysEffect") or obj:IsA("DepthOfFieldEffect") or obj:IsA("BlurEffect") then
         table.insert(savedEffects, obj:Clone())
         if obj:IsA("Sky") then table.insert(savedSky, obj:Clone()) end
     end
@@ -221,6 +242,69 @@ local function showToast(text, sub)
         TweenService:Create(toastSub, info, {TextTransparency = 1}):Play()
         TweenService:Create(toastStroke, info, {Transparency = 1}):Play()
     end)
+end
+
+--==================================================
+-- FPS 顯示器
+--==================================================
+local function toggleFPSCounter()
+    if fpsCounterEnabled then
+        fpsCounterEnabled = false
+        if fpsConnection then fpsConnection:Disconnect(); fpsConnection = nil end
+        if fpsGui then fpsGui:Destroy(); fpsGui = nil end
+        fpsLabel = nil
+        if fpsCounterButton then fpsCounterButton.Text = "FPS 顯示器" end
+        showToast("FPS顯示器已關閉", "小翔製作")
+    else
+        fpsCounterEnabled = true
+        fpsFrameCount = 0
+        fpsTimeElapsed = 0
+        fpsCurrent = 0
+
+        fpsGui = Instance.new("ScreenGui")
+        fpsGui.Name = PREFIX .. "FpsDisplay"
+        fpsGui.ResetOnSpawn = false
+        fpsGui.IgnoreGuiInset = true
+        fpsGui.DisplayOrder = 999998
+        fpsGui.Parent = PlayerGui
+
+        fpsLabel = Instance.new("TextLabel")
+        fpsLabel.Size = UDim2.fromOffset(120, 32)
+        fpsLabel.Position = UDim2.new(1, -130, 0, 12)
+        fpsLabel.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+        fpsLabel.BackgroundTransparency = 0.35
+        fpsLabel.Text = "FPS: --"
+        fpsLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
+        fpsLabel.TextSize = 16
+        fpsLabel.Font = Enum.Font.GothamBold
+        fpsLabel.ZIndex = 999999
+        fpsLabel.Parent = fpsGui
+        addCorner(fpsLabel, 8)
+
+        fpsConnection = RunService.RenderStepped:Connect(function(dt)
+            fpsFrameCount += 1
+            fpsTimeElapsed += dt
+            if fpsTimeElapsed >= 0.5 then
+                fpsCurrent = math.floor(fpsFrameCount / fpsTimeElapsed + 0.5)
+                fpsFrameCount = 0
+                fpsTimeElapsed = 0
+
+                if fpsLabel then
+                    fpsLabel.Text = "FPS: " .. fpsCurrent
+                    if fpsCurrent >= 50 then
+                        fpsLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
+                    elseif fpsCurrent >= 30 then
+                        fpsLabel.TextColor3 = Color3.fromRGB(255, 220, 100)
+                    else
+                        fpsLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                    end
+                end
+            end
+        end)
+
+        if fpsCounterButton then fpsCounterButton.Text = "FPS 顯示器：已開啟" end
+        showToast("FPS顯示器已開啟", "小翔製作")
+    end
 end
 
 --==================================================
@@ -380,14 +464,14 @@ local function selectMode(mode, name)
     statusLabel.Text = "目前狀態：" .. name; timeButton.Text = "當前時間：" .. name
     toggleButton.Text = "關閉光影"; main.Visible = true
     timeMenu.Visible = false; weatherMenu.Visible = false
-    settingMenu.Visible = false; crosshairMenu.Visible = false
+    settingMenu.Visible = false; crosshairMenu.Visible = false; musicMenu.Visible = false
     showToast(name .. "以載入", "小翔製作")
 end
 
 --==================================================
--- 主介面（可滑動）
+-- 主介面
 --==================================================
-main = createMenu(320, 380, 450)
+main = createMenu(320, 380, 500)
 local mainScroll = getScroll(main)
 createTitle(mainScroll, "湊企鵝mod")
 
@@ -402,19 +486,21 @@ timeButton = createButton(mainScroll, 135, "目前時間：夕陽", Color3.fromR
 weatherButton = createButton(mainScroll, 185, "目前天氣：晴天", Color3.fromRGB(65, 115, 105))
 local crosshairPageButton = createButton(mainScroll, 235, "自訂準心", Color3.fromRGB(90, 90, 125))
 local settingsPageButton = createButton(mainScroll, 285, "畫面設定", Color3.fromRGB(100, 75, 135))
-local restoreButton = createButton(mainScroll, 335, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
+musicPageButton = createButton(mainScroll, 335, "音樂", Color3.fromRGB(80, 100, 150))
+local restoreButton = createButton(mainScroll, 385, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 
 --==================================================
 -- 畫面設定頁面
 --==================================================
-settingMenu = createMenu(320, 300, 320)
+settingMenu = createMenu(320, 300, 360)
 local settingScroll = getScroll(settingMenu)
 createTitle(settingScroll, "畫面設定")
 fpsButton = createButton(settingScroll, 52, "增加FPS", Color3.fromRGB(70, 110, 95), 40)
 minecraftButton = createButton(settingScroll, 105, "麥塊紋理包", Color3.fromRGB(105, 92, 68), 40)
 blackTextureButton = createButton(settingScroll, 158, "黑色紋理", Color3.fromRGB(40, 40, 45), 40)
 stretchButton = createButton(settingScroll, 211, "螢幕拉伸 (640x480)", Color3.fromRGB(60, 80, 120), 40)
-local settingDone = createButton(settingScroll, 264, "完成", Color3.fromRGB(92, 65, 76), 38)
+fpsCounterButton = createButton(settingScroll, 264, "FPS 顯示器", Color3.fromRGB(50, 90, 80), 40)
+local settingDone = createButton(settingScroll, 317, "完成", Color3.fromRGB(92, 65, 76), 38)
 
 --==================================================
 -- 時間頁面
@@ -431,22 +517,23 @@ local cycleButton = createButton(timeScroll, 272, "日夜循環", Color3.fromRGB
 local timeDone = createButton(timeScroll, 328, "完成", Color3.fromRGB(92, 65, 76), 38)
 
 --==================================================
--- 天氣頁面
+-- 天氣頁面（新增雪花模式）
 --==================================================
-weatherMenu = createMenu(320, 280, 300)
+weatherMenu = createMenu(320, 360, 380)
 local weatherScroll = getScroll(weatherMenu)
 createTitle(weatherScroll, "當前天氣")
 local rainButton = createButton(weatherScroll, 52, "下雨", Color3.fromRGB(75, 90, 115), 38)
 local sunnyButton = createButton(weatherScroll, 98, "晴天", Color3.fromRGB(75, 125, 105), 38)
+local snowButton = createButton(weatherScroll, 144, "雪花模式（測試）", Color3.fromRGB(130, 150, 180), 38)
 
 local rainLabel = Instance.new("TextLabel")
-rainLabel.Size = UDim2.new(1, -30, 0, 24); rainLabel.Position = UDim2.fromOffset(15, 145)
+rainLabel.Size = UDim2.new(1, -30, 0, 24); rainLabel.Position = UDim2.fromOffset(15, 192)
 rainLabel.BackgroundTransparency = 1; rainLabel.Text = "雨量：中"
 rainLabel.TextColor3 = Color3.fromRGB(210, 220, 235); rainLabel.TextSize = 15
 rainLabel.Font = Enum.Font.GothamBold; rainLabel.ZIndex = 1100; rainLabel.Parent = weatherScroll
 
 local rainTrack = Instance.new("Frame")
-rainTrack.Size = UDim2.new(1, -40, 0, 8); rainTrack.Position = UDim2.fromOffset(20, 178)
+rainTrack.Size = UDim2.new(1, -40, 0, 8); rainTrack.Position = UDim2.fromOffset(20, 225)
 rainTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
 rainTrack.ZIndex = 1100; rainTrack.Parent = weatherScroll; addCorner(rainTrack, 5)
 
@@ -454,18 +541,72 @@ local rainKnob = Instance.new("TextButton")
 rainKnob.Size = UDim2.fromOffset(24, 24); rainKnob.Position = UDim2.new(rainAmount, -12, 0.5, -12)
 rainKnob.BackgroundColor3 = Color3.fromRGB(220, 200, 120); rainKnob.Text = ""
 rainKnob.ZIndex = 1200; rainKnob.Parent = rainTrack; addCorner(rainKnob, 20); addStroke(rainKnob, 2)
-local weatherDone = createButton(weatherScroll, 225, "完成", Color3.fromRGB(92, 65, 76), 38)
+
+local snowLabel = Instance.new("TextLabel")
+snowLabel.Size = UDim2.new(1, -30, 0, 24); snowLabel.Position = UDim2.fromOffset(15, 240)
+snowLabel.BackgroundTransparency = 1; snowLabel.Text = "雪量：中"
+snowLabel.TextColor3 = Color3.fromRGB(220, 235, 250); snowLabel.TextSize = 15
+snowLabel.Font = Enum.Font.GothamBold; snowLabel.ZIndex = 1100; snowLabel.Parent = weatherScroll
+
+local snowTrack = Instance.new("Frame")
+snowTrack.Size = UDim2.new(1, -40, 0, 8); snowTrack.Position = UDim2.fromOffset(20, 273)
+snowTrack.BackgroundColor3 = Color3.fromRGB(120, 140, 170)
+snowTrack.ZIndex = 1100; snowTrack.Parent = weatherScroll; addCorner(snowTrack, 5)
+
+local snowKnob = Instance.new("TextButton")
+snowKnob.Size = UDim2.fromOffset(24, 24); snowKnob.Position = UDim2.new(snowAmount, -12, 0.5, -12)
+snowKnob.BackgroundColor3 = Color3.fromRGB(230, 240, 255); snowKnob.Text = ""
+snowKnob.ZIndex = 1200; snowKnob.Parent = snowTrack; addCorner(snowKnob, 20); addStroke(snowKnob, 2)
+
+local weatherDone = createButton(weatherScroll, 305, "完成", Color3.fromRGB(92, 65, 76), 38)
 
 --==================================================
--- 準心頁面
+-- 準心頁面（新增大小滑桿）
 --==================================================
-crosshairMenu = createMenu(320, 280, 300)
+crosshairMenu = createMenu(320, 360, 400)
 local crosshairScroll = getScroll(crosshairMenu)
 createTitle(crosshairScroll, "自訂準心")
 rotationButton = createButton(crosshairScroll, 52, "開啟旋轉準心", Color3.fromRGB(70, 110, 95), 40)
 techButton = createButton(crosshairScroll, 105, "開啟科技準心", Color3.fromRGB(48, 105, 78), 40)
 blackDiamondButton = createButton(crosshairScroll, 158, "開啟黑色菱形準星", Color3.fromRGB(30, 30, 30), 40)
-local crosshairDone = createButton(crosshairScroll, 211, "完成", Color3.fromRGB(92, 65, 76), 38)
+
+local scaleLabel = Instance.new("TextLabel")
+scaleLabel.Size = UDim2.new(1, -30, 0, 24); scaleLabel.Position = UDim2.fromOffset(15, 212)
+scaleLabel.BackgroundTransparency = 1; scaleLabel.Text = "準心大小：1.0x"
+scaleLabel.TextColor3 = Color3.fromRGB(220, 230, 245); scaleLabel.TextSize = 15
+scaleLabel.Font = Enum.Font.GothamBold; scaleLabel.ZIndex = 1100; scaleLabel.Parent = crosshairScroll
+
+local scaleTrack = Instance.new("Frame")
+scaleTrack.Size = UDim2.new(1, -40, 0, 8); scaleTrack.Position = UDim2.fromOffset(20, 245)
+scaleTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
+scaleTrack.ZIndex = 1100; scaleTrack.Parent = crosshairScroll; addCorner(scaleTrack, 5)
+
+local scaleKnob = Instance.new("TextButton")
+scaleKnob.Size = UDim2.fromOffset(24, 24); scaleKnob.Position = UDim2.new(0.5, -12, 0.5, -12)
+scaleKnob.BackgroundColor3 = Color3.fromRGB(180, 220, 255); scaleKnob.Text = ""
+scaleKnob.ZIndex = 1200; scaleKnob.Parent = scaleTrack; addCorner(scaleKnob, 20); addStroke(scaleKnob, 2)
+
+local crosshairDone = createButton(crosshairScroll, 285, "完成", Color3.fromRGB(92, 65, 76), 38)
+
+--==================================================
+-- 音樂頁面
+--==================================================
+musicMenu = createMenu(320, 280, 300)
+local musicScroll = getScroll(musicMenu)
+createTitle(musicScroll, "音樂播放器")
+
+musicIdBox = Instance.new("TextBox")
+musicIdBox.Size = UDim2.new(1, -30, 0, 42); musicIdBox.Position = UDim2.fromOffset(15, 52)
+musicIdBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
+musicIdBox.TextColor3 = Color3.fromRGB(240, 240, 240); musicIdBox.TextSize = 16
+musicIdBox.Font = Enum.Font.Gotham; musicIdBox.PlaceholderText = "輸入音樂 ID (例如 1837879085)"
+musicIdBox.Text = ""; musicIdBox.ZIndex = 1100; musicIdBox.Parent = musicScroll
+musicIdBox.ClearTextOnFocus = false
+addCorner(musicIdBox, 10); addStroke(musicIdBox, 1.5)
+
+musicPlayButton = createButton(musicScroll, 105, "播放", Color3.fromRGB(70, 130, 90), 40)
+musicStopButton = createButton(musicScroll, 158, "停止播放", Color3.fromRGB(130, 70, 70), 40)
+local musicDone = createButton(musicScroll, 211, "完成", Color3.fromRGB(92, 65, 76), 38)
 
 --==================================================
 -- 彩色旋轉十字準心
@@ -492,21 +633,23 @@ local function createRotatingCrosshair()
     rotationCrosshairGui.Parent = PlayerGui
 
     rotationCrosshairHolder = Instance.new("Frame")
-    rotationCrosshairHolder.Size = UDim2.fromOffset(75, 75)
+    local baseSize = rotationScaleBase * crosshairScale
+    rotationCrosshairHolder.Size = UDim2.fromOffset(baseSize, baseSize)
     rotationCrosshairHolder.Position = UDim2.fromScale(0.5, 0.5)
     rotationCrosshairHolder.AnchorPoint = Vector2.new(0.5, 0.5)
     rotationCrosshairHolder.BackgroundTransparency = 1
     rotationCrosshairHolder.ZIndex = 5000; rotationCrosshairHolder.Parent = rotationCrosshairGui
 
-    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(5, 22), UDim2.new(0.5, 0, 0.5, -18))
-    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(5, 22), UDim2.new(0.5, 0, 0.5, 18))
-    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(22, 5), UDim2.new(0.5, -18, 0.5, 0))
-    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(22, 5), UDim2.new(0.5, 18, 0.5, 0))
+    local function scaled(value) return value * crosshairScale end
+    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(scaled(5), scaled(22)), UDim2.new(0.5, 0, 0.5, scaled(-18)))
+    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(scaled(5), scaled(22)), UDim2.new(0.5, 0, 0.5, scaled(18)))
+    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(scaled(22), scaled(5)), UDim2.new(0.5, scaled(-18), 0.5, 0))
+    createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(scaled(22), scaled(5)), UDim2.new(0.5, scaled(18), 0.5, 0))
 
     local dot = Instance.new("Frame")
-    dot.Size = UDim2.fromOffset(4, 4); dot.Position = UDim2.fromScale(0.5, 0.5)
+    dot.Size = UDim2.fromOffset(scaled(4), scaled(4)); dot.Position = UDim2.fromScale(0.5, 0.5)
     dot.AnchorPoint = Vector2.new(0.5, 0.5); dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    dot.BorderSizePixel = 0; dot.ZIndex = 5002; dot.Parent = rotationCrosshairHolder; addCorner(dot, 4)
+    dot.BorderSizePixel = 0; dot.ZIndex = 5002; dot.Parent = rotationCrosshairHolder; addCorner(dot, scaled(4))
 
     rotationCrosshairConnection = RunService.RenderStepped:Connect(function(dt)
         if not rotationCrosshairEnabled then return end
@@ -553,21 +696,23 @@ local function createTechCrosshair()
     techCrosshairGui.IgnoreGuiInset = true; techCrosshairGui.DisplayOrder = 1000001
     techCrosshairGui.Parent = PlayerGui
 
+    local baseSize = techScaleBase * crosshairScale
     local holder = Instance.new("Frame")
-    holder.Size = UDim2.fromOffset(90, 90); holder.Position = UDim2.fromScale(0.5, 0.5)
+    holder.Size = UDim2.fromOffset(baseSize, baseSize); holder.Position = UDim2.fromScale(0.5, 0.5)
     holder.AnchorPoint = Vector2.new(0.5, 0.5); holder.BackgroundTransparency = 1
     holder.ZIndex = 5090; holder.Parent = techCrosshairGui
 
-    addTechCircle(holder, 88, 1.2); addTechCircle(holder, 62, 2)
-    addTechLine(holder, UDim2.fromOffset(5, 23), UDim2.new(0.5, 0, 0.5, -20))
-    addTechLine(holder, UDim2.fromOffset(5, 23), UDim2.new(0.5, 0, 0.5, 20))
-    addTechLine(holder, UDim2.fromOffset(23, 5), UDim2.new(0.5, -20, 0.5, 0))
-    addTechLine(holder, UDim2.fromOffset(23, 5), UDim2.new(0.5, 20, 0.5, 0))
+    local function scaled(value) return value * crosshairScale end
+    addTechCircle(holder, scaled(88), 1.2); addTechCircle(holder, scaled(62), 2)
+    addTechLine(holder, UDim2.fromOffset(scaled(5), scaled(23)), UDim2.new(0.5, 0, 0.5, scaled(-20)))
+    addTechLine(holder, UDim2.fromOffset(scaled(5), scaled(23)), UDim2.new(0.5, 0, 0.5, scaled(20)))
+    addTechLine(holder, UDim2.fromOffset(scaled(23), scaled(5)), UDim2.new(0.5, scaled(-20), 0.5, 0))
+    addTechLine(holder, UDim2.fromOffset(scaled(23), scaled(5)), UDim2.new(0.5, scaled(20), 0.5, 0))
 
     local dot = Instance.new("Frame")
-    dot.Size = UDim2.fromOffset(5, 5); dot.Position = UDim2.fromScale(0.5, 0.5)
+    dot.Size = UDim2.fromOffset(scaled(5), scaled(5)); dot.Position = UDim2.fromScale(0.5, 0.5)
     dot.AnchorPoint = Vector2.new(0.5, 0.5); dot.BackgroundColor3 = Color3.fromRGB(70, 255, 110)
-    dot.BorderSizePixel = 0; dot.ZIndex = 5110; dot.Parent = holder; addCorner(dot, 5)
+    dot.BorderSizePixel = 0; dot.ZIndex = 5110; dot.Parent = holder; addCorner(dot, scaled(5))
     table.insert(techCrosshairObjects, dot)
 
     techCrosshairConnection = RunService.RenderStepped:Connect(function()
@@ -595,13 +740,14 @@ local function createBlackDiamondCrosshair()
     blackDiamondGui.IgnoreGuiInset = true; blackDiamondGui.DisplayOrder = 1000002
     blackDiamondGui.Parent = PlayerGui
 
+    local baseSize = bdScaleBase * crosshairScale
     local holder = Instance.new("Frame")
-    holder.Size = UDim2.fromOffset(80, 80); holder.Position = UDim2.fromScale(0.5, 0.5)
+    holder.Size = UDim2.fromOffset(baseSize, baseSize); holder.Position = UDim2.fromScale(0.5, 0.5)
     holder.AnchorPoint = Vector2.new(0.5, 0.5); holder.BackgroundTransparency = 1
     holder.ZIndex = 5200; holder.Parent = blackDiamondGui
 
-    local size = 14
-    local thick = 2.5
+    local size = 14 * crosshairScale
+    local thick = 2.5 * crosshairScale
 
     local topLine = Instance.new("Frame")
     topLine.Size = UDim2.fromOffset(size, thick)
@@ -632,24 +778,24 @@ local function createBlackDiamondCrosshair()
     table.insert(blackDiamondObjects, rightLine)
 
     local centerDot = Instance.new("Frame")
-    centerDot.Size = UDim2.fromOffset(4, 4)
-    centerDot.Position = UDim2.new(0.5, -2, 0.5, -2)
+    centerDot.Size = UDim2.fromOffset(4 * crosshairScale, 4 * crosshairScale)
+    centerDot.Position = UDim2.new(0.5, -2 * crosshairScale, 0.5, -2 * crosshairScale)
     centerDot.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     centerDot.BorderSizePixel = 0
     centerDot.ZIndex = 5202; centerDot.Parent = holder
     table.insert(blackDiamondObjects, centerDot)
 
     local crossH = Instance.new("Frame")
-    crossH.Size = UDim2.fromOffset(2, 8)
-    crossH.Position = UDim2.new(0.5, -1, 0.5, -4)
+    crossH.Size = UDim2.fromOffset(2 * crosshairScale, 8 * crosshairScale)
+    crossH.Position = UDim2.new(0.5, -1 * crosshairScale, 0.5, -4 * crosshairScale)
     crossH.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     crossH.BorderSizePixel = 0
     crossH.ZIndex = 5203; crossH.Parent = holder
     table.insert(blackDiamondObjects, crossH)
 
     local crossV = Instance.new("Frame")
-    crossV.Size = UDim2.fromOffset(8, 2)
-    crossV.Position = UDim2.new(0.5, -4, 0.5, -1)
+    crossV.Size = UDim2.fromOffset(8 * crosshairScale, 2 * crosshairScale)
+    crossV.Position = UDim2.new(0.5, -4 * crosshairScale, 0.5, -1 * crosshairScale)
     crossV.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     crossV.BorderSizePixel = 0
     crossV.ZIndex = 5203; crossV.Parent = holder
@@ -808,7 +954,7 @@ local function resizeRain()
 end
 
 local function startRain()
-    stopRain(); rainEnabled = true
+    stopRain(); stopSnow(); rainEnabled = true
     rainFolder = Instance.new("Folder"); rainFolder.Name = PREFIX .. "Rain"; rainFolder.Parent = workspace
     local folder = Instance.new("Folder"); folder.Name = "Drops"; folder.Parent = rainFolder
     resizeRain()
@@ -823,6 +969,100 @@ local function startRain()
         end
     end)
     weatherButton.Text = "當前天氣：下雨"; showToast("下雨時加載", "小翔製作")
+end
+
+--==================================================
+-- 雪花模式（測試版）
+--==================================================
+local function stopSnow()
+    if snowConnection then snowConnection:Disconnect(); snowConnection = nil end
+    if snowFolder then snowFolder:Destroy(); snowFolder = nil end
+    table.clear(snowFlakes); snowEnabled = false
+end
+
+local function snowCount() return math.floor(80 + snowAmount * 700) end
+
+local function resizeSnow()
+    if not snowFolder then return end
+    local folder = snowFolder:FindFirstChild("Flakes"); if not folder then return end
+    while #snowFlakes < snowCount() do
+        local part = Instance.new("Part")
+        part.Anchored = true; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false
+        part.Material = Enum.Material.Neon; part.Color = Color3.fromRGB(255, 255, 255)
+        part.Transparency = 0.15
+        local s = math.random(8, 18) / 100
+        part.Size = Vector3.new(s, s, s); part.Shape = Enum.PartType.Ball
+        part.Parent = folder
+        table.insert(snowFlakes, {
+            part = part,
+            offset = Vector3.new(math.random(-70, 70), math.random(20, 70), math.random(-70, 70)),
+            speed = math.random(15, 30),
+            sway = math.random(0, 360)
+        })
+    end
+    while #snowFlakes > snowCount() do
+        local flake = table.remove(snowFlakes); if flake and flake.part then flake.part:Destroy() end
+    end
+end
+
+local function startSnow()
+    stopRain(); stopSnow(); snowEnabled = true
+    snowFolder = Instance.new("Folder"); snowFolder.Name = PREFIX .. "Snow"; snowFolder.Parent = workspace
+    local folder = Instance.new("Folder"); folder.Name = "Flakes"; folder.Parent = snowFolder
+    resizeSnow()
+    snowConnection = RunService.RenderStepped:Connect(function(dt)
+        local camera = workspace.CurrentCamera; if not camera then return end
+        for _, flake in ipairs(snowFlakes) do
+            if flake.part and flake.part.Parent then
+                flake.sway += dt * 2
+                local swayX = math.sin(flake.sway) * 2
+                flake.offset -= Vector3.new(swayX, flake.speed, 1.5) * dt
+                if flake.offset.Y < -12 then
+                    flake.offset = Vector3.new(math.random(-70, 70), math.random(50, 80), math.random(-70, 70))
+                end
+                flake.part.Position = camera.CFrame.Position + flake.offset
+            end
+        end
+    end)
+    weatherButton.Text = "當前天氣：下雪"; showToast("雪花模式已載入", "小翔製作")
+end
+
+--==================================================
+-- 音樂播放器
+--==================================================
+local function playMusic()
+    local id = musicIdBox and musicIdBox.Text or ""
+    if id == "" then showToast("請輸入音樂 ID", "小翔製作"); return end
+
+    if musicSound then musicSound:Destroy(); musicSound = nil end
+
+    local success, err = pcall(function()
+        musicSound = Instance.new("Sound")
+        musicSound.Name = PREFIX .. "Music"
+        musicSound.SoundId = "rbxassetid://" .. id
+        musicSound.Looped = true
+        musicSound.Volume = 1
+        musicSound.Parent = SoundService
+        musicSound:Play()
+    end)
+
+    if success then
+        musicPlaying = true
+        showToast("音樂播放中", "小翔製作")
+    else
+        musicPlaying = false
+        warn("音樂播放失敗：" .. tostring(err))
+        showToast("音樂播放失敗", "小翔製作")
+    end
+end
+
+local function stopMusic()
+    if musicSound then
+        pcall(function() musicSound:Stop(); musicSound:Destroy() end)
+        musicSound = nil
+    end
+    musicPlaying = false
+    showToast("音樂已停止", "小翔製作")
 end
 
 --==================================================
@@ -848,7 +1088,7 @@ end
 --==================================================
 local function restore()
     cycleToken += 1; cycle = false
-    stopRain(); removeRotatingCrosshair(); removeTechCrosshair(); removeBlackDiamondCrosshair(); clearOwned()
+    stopRain(); stopSnow(); removeRotatingCrosshair(); removeTechCrosshair(); removeBlackDiamondCrosshair(); clearOwned()
     if fpsGrayEffect then fpsGrayEffect:Destroy(); fpsGrayEffect = nil end
     if fpsGrayAtmosphere then fpsGrayAtmosphere:Destroy(); fpsGrayAtmosphere = nil end
     for prop, val in pairs(savedLighting) do
@@ -893,7 +1133,7 @@ end
 --==================================================
 local function closeAllMenus()
     main.Visible = false; timeMenu.Visible = false; weatherMenu.Visible = false
-    settingMenu.Visible = false; crosshairMenu.Visible = false
+    settingMenu.Visible = false; crosshairMenu.Visible = false; musicMenu.Visible = false
 end
 
 timeButton.Activated:Connect(function() closeAllMenus(); timeMenu.Visible = true end)
@@ -901,6 +1141,7 @@ weatherButton.Activated:Connect(function() closeAllMenus(); weatherMenu.Visible 
 
 settingsPageButton.Activated:Connect(function() closeAllMenus(); settingMenu.Visible = true end)
 crosshairPageButton.Activated:Connect(function() closeAllMenus(); crosshairMenu.Visible = true end)
+musicPageButton.Activated:Connect(function() closeAllMenus(); musicMenu.Visible = true end)
 
 toggleButton.Activated:Connect(function()
     if lightEnabled then
@@ -930,7 +1171,8 @@ timeDone.Activated:Connect(function() timeMenu.Visible = false; main.Visible = t
 -- 天氣按鈕
 --==================================================
 rainButton.Activated:Connect(function() startRain(); weatherMenu.Visible = false; main.Visible = true end)
-sunnyButton.Activated:Connect(function() stopRain(); weatherButton.Text = "當前天氣：晴天"; weatherMenu.Visible = false; main.Visible = true; showToast("晴天以加載", "小翔製作") end)
+sunnyButton.Activated:Connect(function() stopRain(); stopSnow(); weatherButton.Text = "當前天氣：晴天"; weatherMenu.Visible = false; main.Visible = true; showToast("晴天以加載", "小翔製作") end)
+snowButton.Activated:Connect(function() startSnow(); weatherMenu.Visible = false; main.Visible = true end)
 weatherDone.Activated:Connect(function() weatherMenu.Visible = false; main.Visible = true; showToast("目前天氣設定已完成", "小翔製作") end)
 
 --==================================================
@@ -940,7 +1182,15 @@ fpsButton.Activated:Connect(function() enableFPS(); fpsButton.Text = "增加FPS�
 minecraftButton.Activated:Connect(function() enableMinecraftPack() end)
 blackTextureButton.Activated:Connect(function() enableBlackTexture() end)
 stretchButton.Activated:Connect(function() toggleStretch() end)
+fpsCounterButton.Activated:Connect(function() toggleFPSCounter() end)
 settingDone.Activated:Connect(function() settingMenu.Visible = false; main.Visible = true; showToast("畫面設定已完成", "小翔製作") end)
+
+--==================================================
+-- 音樂按鈕
+--==================================================
+musicPlayButton.Activated:Connect(function() playMusic() end)
+musicStopButton.Activated:Connect(function() stopMusic() end)
+musicDone.Activated:Connect(function() musicMenu.Visible = false; main.Visible = true; showToast("音樂設定已完成", "小翔製作") end)
 
 --==================================================
 -- 準心按鈕
@@ -978,6 +1228,35 @@ end)
 crosshairDone.Activated:Connect(function() crosshairMenu.Visible = false; main.Visible = true; showToast("自訂設定心設定已完成", "小翔製作") end)
 
 --==================================================
+-- 準心大小滑桿
+--==================================================
+local function updateScale(input)
+    local width = math.max(scaleTrack.AbsoluteSize.X, 1)
+    local x = input.Position.X - scaleTrack.AbsolutePosition.X
+    local ratio = math.clamp(x / width, 0, 1)
+    crosshairScale = 0.3 + ratio * 2.7  -- 0.3x ~ 3.0x
+
+    scaleKnob.Position = UDim2.new(ratio, -12, 0.5, -12)
+    scaleLabel.Text = string.format("準心大小：%.1fx", crosshairScale)
+
+    if rotationCrosshairEnabled then createRotatingCrosshair() end
+    if techCrosshairEnabled then createTechCrosshair() end
+    if blackDiamondEnabled then createBlackDiamondCrosshair() end
+end
+
+scaleTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        crosshairScaleDragging = true; updateScale(input)
+    end
+end)
+
+scaleKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        crosshairScaleDragging = true
+    end
+end)
+
+--==================================================
 -- 雨量滑桿
 --==================================================
 local function updateRain(input)
@@ -1004,6 +1283,32 @@ rainKnob.InputBegan:Connect(function(input)
 end)
 
 --==================================================
+-- 雪量滑桿
+--==================================================
+local function updateSnow(input)
+    local width = math.max(snowTrack.AbsoluteSize.X, 1)
+    local x = input.Position.X - snowTrack.AbsolutePosition.X
+    snowAmount = math.clamp(x / width, 0.05, 1)
+    snowKnob.Position = UDim2.new(snowAmount, -12, 0.5, -12)
+    if snowAmount < 0.34 then snowLabel.Text = "雪量：小"
+    elseif snowAmount < 0.67 then snowLabel.Text = "雪量：中"
+    else snowLabel.Text = "雪量：大" end
+    if snowEnabled then resizeSnow() end
+end
+
+snowTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        snowDragging = true; updateSnow(input)
+    end
+end)
+
+snowKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        snowDragging = true
+    end
+end)
+
+--==================================================
 -- 懸浮球拖曳與點擊
 --==================================================
 orb.Activated:Connect(function()
@@ -1011,7 +1316,7 @@ orb.Activated:Connect(function()
     main.Visible = not main.Visible
     if main.Visible then
         timeMenu.Visible = false; weatherMenu.Visible = false
-        settingMenu.Visible = false; crosshairMenu.Visible = false
+        settingMenu.Visible = false; crosshairMenu.Visible = false; musicMenu.Visible = false
     end
 end)
 
@@ -1023,6 +1328,8 @@ end)
 
 UIS.InputChanged:Connect(function(input)
     if rainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateRain(input) end
+    if snowDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateSnow(input) end
+    if crosshairScaleDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateScale(input) end
     if orbDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStart
         if delta.Magnitude > 8 then orbMoved = true end
@@ -1032,7 +1339,21 @@ end)
 
 UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        rainDragging = false; orbDragging = false
+        rainDragging = false; snowDragging = false; crosshairScaleDragging = false; orbDragging = false
+    end
+end)
+
+--==================================================
+-- 快捷鍵：按 I 開關主介面
+--==================================================
+UIS.InputBegan:Connect(function(input, processed)
+    if processed then return end
+    if input.KeyCode == Enum.KeyCode.I then
+        main.Visible = not main.Visible
+        if main.Visible then
+            timeMenu.Visible = false; weatherMenu.Visible = false
+            settingMenu.Visible = false; crosshairMenu.Visible = false; musicMenu.Visible = false
+        end
     end
 end)
 
@@ -1041,7 +1362,8 @@ end)
 --==================================================
 script.Destroying:Connect(function()
     restore()
+    stopMusic()
     if gui then gui:Destroy() end
 end)
 
-print("湊企鵝mod：完整整合版已載入（可滑動介面）")
+print("湊企鵝mod：完整整合版已載入（準心大小 + 雪花 + 快捷鍵 + 音樂）")
