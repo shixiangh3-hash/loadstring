@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜完整版（低血量 + 水面反射 + 閃電 + 景深 + 按鈕音效）
+-- 湊企鵝mod｜完整版（低血量 + 閃電 + 景深）- 修正
 --====================================================
 
 local Players = game:GetService("Players")
@@ -17,17 +17,16 @@ local MINECRAFT_URL = "https://pastebin.com/raw/Cb9ExUkB"
 local BLACK_TEXTURE_URL = "https://pastebin.com/raw/xWZRF6Py"
 local STRETCH_URL = "https://rawscripts.net/raw/Universal-Script-Stretched-Resolution-4:3-rest-aspect-ratio-226525"
 local SAVE_FILE = "PenguinMod_MusicSaves.json"
-local CLICK_SOUND = "rbxassetid://6895079853" -- 麥塊「喀」聲
+local CLICK_SOUND = "rbxassetid://6895079853"
+local THUNDER_SOUND = "rbxassetid://131300621"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
--- 清除舊 GUI
 for _, obj in ipairs(PlayerGui:GetChildren()) do
     if obj:IsA("ScreenGui") and (obj.Name:find("PenguinMod") or obj.Name:find("PM_")) then
         pcall(function() obj:Destroy() end)
     end
 end
 
--- 建立 GUI
 local gui = Instance.new("ScreenGui")
 gui.Name = PREFIX .. "MainGui"
 gui.ResetOnSpawn = false
@@ -35,43 +34,28 @@ gui.IgnoreGuiInset = true
 gui.DisplayOrder = 999999
 gui.Parent = PlayerGui
 
---====================================================
--- 按鈕音效
---====================================================
 local function playClick()
     pcall(function()
         local s = Instance.new("Sound")
         s.SoundId = CLICK_SOUND
-        s.Volume = 0.6
+        s.Volume = 2.0
+        s.PlaybackSpeed = 0.85
         s.Parent = SoundService
         s:Play()
         task.delay(0.5, function() s:Destroy() end)
     end)
 end
 
---====================================================
--- RGB 效果管理
---====================================================
 local rgbObjects = {}
-
-local function addRGB(obj, prop)
-    table.insert(rgbObjects, {object = obj, property = prop})
-end
-
-local function rgbColor(speed, offset)
-    return Color3.fromHSV(((os.clock() * speed) + (offset or 0)) % 1, 0.58, 0.93)
-end
-
+local function addRGB(obj, prop) table.insert(rgbObjects, {object = obj, property = prop}) end
+local function rgbColor(speed, offset) return Color3.fromHSV(((os.clock() * speed) + (offset or 0)) % 1, 0.58, 0.93) end
 RunService.RenderStepped:Connect(function()
     for i, data in ipairs(rgbObjects) do
         if data.object and data.object.Parent then
-            pcall(function()
-                data.object[data.property] = rgbColor(0.08, i * 0.025)
-            end)
+            pcall(function() data.object[data.property] = rgbColor(0.08, i * 0.025) end)
         end
     end
 end)
-
 local function addRGBStroke(obj, thickness)
     local s = Instance.new("UIStroke")
     s.Thickness = thickness or 1.5
@@ -81,23 +65,18 @@ local function addRGBStroke(obj, thickness)
     return s
 end
 
---====================================================
--- 開場動畫
---====================================================
 local loading = Instance.new("Frame")
 loading.Size = UDim2.fromScale(1, 1)
 loading.BackgroundColor3 = Color3.fromRGB(8, 10, 18)
 loading.BackgroundTransparency = 0.06
 loading.ZIndex = 3000
 loading.Parent = gui
-
 local smokeHolder = Instance.new("Frame")
 smokeHolder.Size = UDim2.fromOffset(280, 280)
 smokeHolder.Position = UDim2.new(0.5, -140, 0.5, -175)
 smokeHolder.BackgroundTransparency = 1
 smokeHolder.ZIndex = 3001
 smokeHolder.Parent = loading
-
 local smokeParts = {}
 for i = 1, 14 do
     local part = Instance.new("Frame")
@@ -113,7 +92,6 @@ for i = 1, 14 do
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, size); c.Parent = part
     table.insert(smokeParts, part)
 end
-
 local loadingTitle = Instance.new("TextLabel")
 loadingTitle.Size = UDim2.new(1, -40, 0, 70)
 loadingTitle.Position = UDim2.new(0, 20, 0.5, -35)
@@ -124,17 +102,13 @@ loadingTitle.TextSize = 42
 loadingTitle.Font = Enum.Font.GothamBlack
 loadingTitle.ZIndex = 3010
 loadingTitle.Parent = loading
-
 local loadRotation = 0
 local loadConnection = RunService.RenderStepped:Connect(function(dt)
     if not loading.Parent then return end
     loadRotation = loadRotation + dt * 70
     smokeHolder.Rotation = loadRotation
-    for i, part in ipairs(smokeParts) do
-        part.BackgroundColor3 = rgbColor(0.07, i * 0.025)
-    end
+    for i, part in ipairs(smokeParts) do part.BackgroundColor3 = rgbColor(0.07, i * 0.025) end
 end)
-
 task.delay(3, function()
     if loadConnection then loadConnection:Disconnect() end
     TweenService:Create(loading, TweenInfo.new(0.65), {BackgroundTransparency = 1}):Play()
@@ -142,9 +116,6 @@ task.delay(3, function()
     if loading then loading:Destroy() end
 end)
 
---====================================================
--- 懸浮球
---====================================================
 local orb = Instance.new("ImageButton")
 orb.Name = PREFIX .. "Orb"
 orb.Size = UDim2.fromOffset(64, 64)
@@ -157,9 +128,6 @@ orb.Parent = gui
 local oc = Instance.new("UICorner"); oc.CornerRadius = UDim.new(0, 32); oc.Parent = orb
 addRGBStroke(orb, 3)
 
---====================================================
--- 通用函式（按鈕自帶音效）
---====================================================
 local function createBtn(parent, y, text, color, h)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(1, -30, 0, h or 40)
@@ -173,11 +141,9 @@ local function createBtn(parent, y, text, color, h)
     b.Parent = parent
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 10); c.Parent = b
     addRGBStroke(b, 1.5)
-    -- 按下時播放麥塊音效
     b.MouseButton1Down:Connect(function() playClick() end)
     return b
 end
-
 local function createMenu(w, h, canvasH)
     local f = Instance.new("Frame")
     f.Size = UDim2.fromOffset(w, h)
@@ -188,7 +154,6 @@ local function createMenu(w, h, canvasH)
     f.Parent = gui
     local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 16); c.Parent = f
     addRGBStroke(f, 2)
-
     local scroll = Instance.new("ScrollingFrame")
     scroll.Name = "Scroll"
     scroll.Size = UDim2.new(1, 0, 1, 0)
@@ -201,7 +166,6 @@ local function createMenu(w, h, canvasH)
     scroll.Parent = f
     return f
 end
-
 local function createTitle(parent, text)
     local l = Instance.new("TextLabel")
     l.Size = UDim2.new(1, -30, 0, 42)
@@ -216,7 +180,6 @@ local function createTitle(parent, text)
     addRGB(l, "TextColor3")
     return l
 end
-
 local function showToast(text)
     local t = Instance.new("TextLabel")
     t.Size = UDim2.fromOffset(315, 50)
@@ -238,13 +201,9 @@ local function showToast(text)
     end)
 end
 
---====================================================
--- 主介面
---====================================================
 local main = createMenu(320, 380, 500)
 local mainScroll = main:FindFirstChild("Scroll")
 createTitle(mainScroll, "湊企鵝mod")
-
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Size = UDim2.new(1, -30, 0, 25)
 statusLabel.Position = UDim2.fromOffset(15, 55)
@@ -255,7 +214,6 @@ statusLabel.TextSize = 14
 statusLabel.Font = Enum.Font.Gotham
 statusLabel.ZIndex = 1100
 statusLabel.Parent = mainScroll
-
 local toggleButton = createBtn(mainScroll, 85, "開啟光影", Color3.fromRGB(58, 75, 100))
 local timeButton = createBtn(mainScroll, 135, "目前時間：夕陽", Color3.fromRGB(65, 95, 112))
 local weatherButton = createBtn(mainScroll, 185, "目前天氣：晴天", Color3.fromRGB(65, 115, 105))
@@ -264,43 +222,26 @@ local settingPageButton = createBtn(mainScroll, 285, "畫面設定", Color3.from
 local musicPageButton = createBtn(mainScroll, 335, "音樂", Color3.fromRGB(80, 100, 150))
 local restoreButton = createBtn(mainScroll, 385, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 
---====================================================
--- 懸浮球拖曳與點擊
---====================================================
 local orbDragging = false
 local orbMoved = false
 local dragStart, orbStart
 local allMenus = {}
-
 local function closeAllMenus()
-    for _, m in ipairs(allMenus) do
-        if m then m.Visible = false end
-    end
+    for _, m in ipairs(allMenus) do if m then m.Visible = false end end
 end
-
 orb.Activated:Connect(function()
     if orbMoved then orbMoved = false; return end
     playClick()
     local anyOpen = false
-    for _, m in ipairs(allMenus) do
-        if m and m.Visible then anyOpen = true; break end
-    end
-    if anyOpen then
-        closeAllMenus()
-        return
-    end
+    for _, m in ipairs(allMenus) do if m and m.Visible then anyOpen = true; break end end
+    if anyOpen then closeAllMenus(); return end
     main.Visible = true
 end)
-
 orb.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        orbDragging = true
-        orbMoved = false
-        dragStart = input.Position
-        orbStart = orb.Position
+        orbDragging = true; orbMoved = false; dragStart = input.Position; orbStart = orb.Position
     end
 end)
-
 UIS.InputChanged:Connect(function(input)
     if orbDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local d = input.Position - dragStart
@@ -308,16 +249,10 @@ UIS.InputChanged:Connect(function(input)
         orb.Position = UDim2.new(orbStart.X.Scale, orbStart.X.Offset + d.X, orbStart.Y.Scale, orbStart.Y.Offset + d.Y)
     end
 end)
-
 UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        orbDragging = false
-    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then orbDragging = false end
 end)
 
---====================================================
--- 光影（含水面反射）
---====================================================
 local savedLighting = {}
 local savedTerrain = {}
 for _, p in ipairs({"Technology","GlobalShadows","Brightness","ClockTime","ExposureCompensation","Ambient","OutdoorAmbient","ColorShift_Top","ColorShift_Bottom","EnvironmentDiffuseScale","EnvironmentSpecularScale","ShadowSoftness","FogColor","FogStart","FogEnd"}) do
@@ -330,22 +265,17 @@ if Terrain then
         if ok then savedTerrain[p] = v end
     end
 end
-
 local function clearOwned()
     for _, o in ipairs(Lighting:GetChildren()) do
         if o.Name:sub(1, #PREFIX) == PREFIX then o:Destroy() end
     end
 end
-
 local function clearSkyAndFog()
-    for _, o in ipairs(Lighting:GetChildren()) do
-        if o:IsA("Sky") then o:Destroy() end
-    end
+    for _, o in ipairs(Lighting:GetChildren()) do if o:IsA("Sky") then o:Destroy() end end
     Lighting.FogStart = 100000
     Lighting.FogEnd = 100000
     Lighting.FogColor = Color3.fromRGB(255, 255, 255)
 end
-
 local function baseLighting()
     Lighting.Technology = Enum.Technology.Future
     Lighting.GlobalShadows = true
@@ -353,7 +283,6 @@ local function baseLighting()
     Lighting.EnvironmentDiffuseScale = 0.86
     Lighting.EnvironmentSpecularScale = 0.94
 end
-
 local function applyWaterReflection()
     if Terrain then
         pcall(function()
@@ -364,28 +293,22 @@ local function applyWaterReflection()
         end)
     end
 end
-
 local function applyPreset()
-    clearOwned(); clearSkyAndFog(); baseLighting()
-    applyWaterReflection()
+    clearOwned(); clearSkyAndFog(); baseLighting(); applyWaterReflection()
     Lighting.ClockTime = 16.55; Lighting.Brightness = 1.95
     Lighting.ExposureCompensation = -0.01; Lighting.Ambient = Color3.fromRGB(68, 76, 92)
     Lighting.OutdoorAmbient = Color3.fromRGB(142, 158, 180)
     Lighting.FogColor = Color3.fromRGB(177, 210, 226); Lighting.FogStart = 700; Lighting.FogEnd = 100000
 end
-
 local function applyDay()
-    clearOwned(); clearSkyAndFog(); baseLighting()
-    applyWaterReflection()
+    clearOwned(); clearSkyAndFog(); baseLighting(); applyWaterReflection()
     Lighting.ClockTime = 13.1; Lighting.Brightness = 1.72
     Lighting.Ambient = Color3.fromRGB(78, 86, 103)
     Lighting.OutdoorAmbient = Color3.fromRGB(145, 158, 180)
     Lighting.FogColor = Color3.fromRGB(205, 221, 232)
 end
-
 local function applySunset()
-    clearOwned(); clearSkyAndFog(); baseLighting()
-    applyWaterReflection()
+    clearOwned(); clearSkyAndFog(); baseLighting(); applyWaterReflection()
     Lighting.ClockTime = 17.65; Lighting.Brightness = 2.05
     Lighting.ExposureCompensation = 0.08
     Lighting.Ambient = Color3.fromRGB(40, 20, 15)
@@ -407,16 +330,13 @@ local function applySunset()
     at.Glare = 0.1
     at.Parent = Lighting
 end
-
 local function applyNight()
-    clearOwned(); clearSkyAndFog(); baseLighting()
-    applyWaterReflection()
+    clearOwned(); clearSkyAndFog(); baseLighting(); applyWaterReflection()
     Lighting.ClockTime = 0.15; Lighting.Brightness = 1.16
     Lighting.Ambient = Color3.fromRGB(38, 47, 96)
     Lighting.OutdoorAmbient = Color3.fromRGB(62, 76, 145)
     Lighting.FogColor = Color3.fromRGB(34, 48, 112); Lighting.FogStart = 300; Lighting.FogEnd = 100000
 end
-
 local function applyFog()
     clearOwned(); clearSkyAndFog(); baseLighting()
     Lighting.ClockTime = 15
@@ -435,7 +355,6 @@ local function applyFog()
     at.Glare = 0
     at.Parent = Lighting
 end
-
 local lightEnabled = false
 local function selectMode(mode, name)
     lightEnabled = true
@@ -448,14 +367,11 @@ local function selectMode(mode, name)
     timeButton.Text = "目前時間：" .. name
     toggleButton.Text = "關閉光影"
 end
-
 toggleButton.Activated:Connect(function()
     if lightEnabled then
         clearOwned()
         for p, v in pairs(savedLighting) do pcall(function() Lighting[p] = v end) end
-        if Terrain then
-            for p, v in pairs(savedTerrain) do pcall(function() Terrain[p] = v end) end
-        end
+        if Terrain then for p, v in pairs(savedTerrain) do pcall(function() Terrain[p] = v end) end end
         lightEnabled = false
         statusLabel.Text = "目前狀態：已關閉"
         toggleButton.Text = "開啟光影"
@@ -463,19 +379,15 @@ toggleButton.Activated:Connect(function()
         selectMode("預設", "預設光影")
     end
 end)
-
 restoreButton.Activated:Connect(function()
     clearOwned()
     for p, v in pairs(savedLighting) do pcall(function() Lighting[p] = v end) end
-    if Terrain then
-        for p, v in pairs(savedTerrain) do pcall(function() Terrain[p] = v end) end
-    end
+    if Terrain then for p, v in pairs(savedTerrain) do pcall(function() Terrain[p] = v end) end end
     lightEnabled = false
     statusLabel.Text = "目前狀態：已恢復"
     toggleButton.Text = "開啟光影"
 end)
 
--- 時間頁面
 local timeMenu = createMenu(320, 380, 400)
 local timeScroll = timeMenu:FindFirstChild("Scroll")
 createTitle(timeScroll, "當前時間")
@@ -485,33 +397,21 @@ local nightButton = createBtn(timeScroll, 140, "夜間／星空", Color3.fromRGB
 local fogButton = createBtn(timeScroll, 184, "起霧", Color3.fromRGB(100, 105, 120), 38)
 local sunsetButton = createBtn(timeScroll, 228, "夕陽", Color3.fromRGB(155, 92, 58), 38)
 local timeDone = createBtn(timeScroll, 272, "完成", Color3.fromRGB(92, 65, 76), 38)
-
-timeButton.Activated:Connect(function()
-    closeAllMenus()
-    timeMenu.Visible = true
-end)
-timeDone.Activated:Connect(function()
-    closeAllMenus()
-    main.Visible = true
-end)
+timeButton.Activated:Connect(function() closeAllMenus(); timeMenu.Visible = true end)
+timeDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 presetButton.Activated:Connect(function() selectMode("預設", "預設光影") end)
 dayButton.Activated:Connect(function() selectMode("白天", "白天") end)
 nightButton.Activated:Connect(function() selectMode("夜間", "夜間") end)
 fogButton.Activated:Connect(function() selectMode("起霧", "起霧") end)
 sunsetButton.Activated:Connect(function() selectMode("夕陽", "夕陽") end)
 
---====================================================
--- 天氣頁面（含閃電打雷）
---====================================================
 local weatherMenu = createMenu(320, 400, 440)
 local weatherScroll = weatherMenu:FindFirstChild("Scroll")
 createTitle(weatherScroll, "當前天氣")
-
 local rainButton = createBtn(weatherScroll, 52, "下雨", Color3.fromRGB(75, 90, 115), 38)
 local sunnyButton = createBtn(weatherScroll, 98, "晴天", Color3.fromRGB(75, 125, 105), 38)
 local snowButton = createBtn(weatherScroll, 144, "下雪", Color3.fromRGB(130, 150, 180), 38)
 local thunderButton = createBtn(weatherScroll, 190, "閃電打雷", Color3.fromRGB(180, 160, 60), 38)
-
 local rainLabel = Instance.new("TextLabel")
 rainLabel.Size = UDim2.new(1, -30, 0, 24)
 rainLabel.Position = UDim2.fromOffset(15, 238)
@@ -522,7 +422,6 @@ rainLabel.TextSize = 15
 rainLabel.Font = Enum.Font.GothamBold
 rainLabel.ZIndex = 1100
 rainLabel.Parent = weatherScroll
-
 local rainTrack = Instance.new("Frame")
 rainTrack.Size = UDim2.new(1, -40, 0, 8)
 rainTrack.Position = UDim2.fromOffset(20, 271)
@@ -530,7 +429,6 @@ rainTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
 rainTrack.ZIndex = 1100
 rainTrack.Parent = weatherScroll
 local rtc = Instance.new("UICorner"); rtc.CornerRadius = UDim.new(0, 5); rtc.Parent = rainTrack
-
 local rainKnob = Instance.new("TextButton")
 rainKnob.Size = UDim2.fromOffset(24, 24)
 rainKnob.Position = UDim2.new(0.5, -12, 0.5, -12)
@@ -539,7 +437,6 @@ rainKnob.Text = ""
 rainKnob.ZIndex = 1200
 rainKnob.Parent = rainTrack
 local rkc = Instance.new("UICorner"); rkc.CornerRadius = UDim.new(0, 20); rkc.Parent = rainKnob
-
 local snowLabel = Instance.new("TextLabel")
 snowLabel.Size = UDim2.new(1, -30, 0, 24)
 snowLabel.Position = UDim2.fromOffset(15, 286)
@@ -550,7 +447,6 @@ snowLabel.TextSize = 15
 snowLabel.Font = Enum.Font.GothamBold
 snowLabel.ZIndex = 1100
 snowLabel.Parent = weatherScroll
-
 local snowTrack = Instance.new("Frame")
 snowTrack.Size = UDim2.new(1, -40, 0, 8)
 snowTrack.Position = UDim2.fromOffset(20, 319)
@@ -558,7 +454,6 @@ snowTrack.BackgroundColor3 = Color3.fromRGB(120, 140, 170)
 snowTrack.ZIndex = 1100
 snowTrack.Parent = weatherScroll
 local stc = Instance.new("UICorner"); stc.CornerRadius = UDim.new(0, 5); stc.Parent = snowTrack
-
 local snowKnob = Instance.new("TextButton")
 snowKnob.Size = UDim2.fromOffset(24, 24)
 snowKnob.Position = UDim2.new(0.5, -12, 0.5, -12)
@@ -567,19 +462,10 @@ snowKnob.Text = ""
 snowKnob.ZIndex = 1200
 snowKnob.Parent = snowTrack
 local skc = Instance.new("UICorner"); skc.CornerRadius = UDim.new(0, 20); skc.Parent = snowKnob
-
 local weatherDone = createBtn(weatherScroll, 350, "完成", Color3.fromRGB(92, 65, 76), 38)
+weatherButton.Activated:Connect(function() closeAllMenus(); weatherMenu.Visible = true end)
+weatherDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 
-weatherButton.Activated:Connect(function()
-    closeAllMenus()
-    weatherMenu.Visible = true
-end)
-weatherDone.Activated:Connect(function()
-    closeAllMenus()
-    main.Visible = true
-end)
-
--- 雨 / 雪 / 閃電系統
 local rainAmount = 0.55
 local snowAmount = 0.55
 local rainEnabled = false
@@ -589,29 +475,22 @@ local rainFolder, rainConnection, rainDrops = nil, nil, {}
 local snowFolder, snowConnection, snowFlakes = nil, nil, {}
 local thunderConnection = nil
 local thunderGui = nil
-
 local function stopRain()
     if rainConnection then rainConnection:Disconnect(); rainConnection = nil end
     if rainFolder then rainFolder:Destroy(); rainFolder = nil end
-    table.clear(rainDrops)
-    rainEnabled = false
+    table.clear(rainDrops); rainEnabled = false
 end
-
 local function stopSnow()
     if snowConnection then snowConnection:Disconnect(); snowConnection = nil end
     if snowFolder then snowFolder:Destroy(); snowFolder = nil end
-    table.clear(snowFlakes)
-    snowEnabled = false
+    table.clear(snowFlakes); snowEnabled = false
 end
-
 local function stopThunder()
     if thunderConnection then thunderConnection:Disconnect(); thunderConnection = nil end
     if thunderGui then thunderGui:Destroy(); thunderGui = nil end
     thunderEnabled = false
 end
-
 local function rainCount() return math.floor(100 + rainAmount * 900) end
-
 local function resizeRain()
     if not rainFolder then return end
     local folder = rainFolder:FindFirstChild("Drops"); if not folder then return end
@@ -630,7 +509,6 @@ local function resizeRain()
         if drop and drop.part then drop.part:Destroy() end
     end
 end
-
 local function startRain()
     stopRain(); stopSnow()
     rainEnabled = true
@@ -651,9 +529,7 @@ local function startRain()
     end)
     weatherButton.Text = "目前天氣：下雨"
 end
-
 local function snowCount() return math.floor(80 + snowAmount * 700) end
-
 local function resizeSnow()
     if not snowFolder then return end
     local folder = snowFolder:FindFirstChild("Flakes"); if not folder then return end
@@ -674,7 +550,6 @@ local function resizeSnow()
         if flake and flake.part then flake.part:Destroy() end
     end
 end
-
 local function startSnow()
     stopRain(); stopSnow()
     snowEnabled = true
@@ -698,7 +573,6 @@ local function startSnow()
     weatherButton.Text = "目前天氣：下雪"
 end
 
--- 閃電打雷（只在雨天可用）
 local function startThunder()
     if not rainEnabled then
         showToast("請先開啟下雨才能使用閃電")
@@ -712,15 +586,12 @@ local function startThunder()
     end
     thunderEnabled = true
     thunderButton.Text = "閃電打雷：已開啟"
-
-    -- 建立閃電閃光用 ScreenGui
     thunderGui = Instance.new("ScreenGui")
     thunderGui.Name = PREFIX .. "Thunder"
     thunderGui.ResetOnSpawn = false
     thunderGui.IgnoreGuiInset = true
     thunderGui.DisplayOrder = 999997
     thunderGui.Parent = PlayerGui
-
     local flash = Instance.new("Frame")
     flash.Size = UDim2.fromScale(1, 1)
     flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -732,44 +603,38 @@ local function startThunder()
         while thunderEnabled do
             task.wait(math.random(5, 12))
             if not thunderEnabled then break end
-            -- 隨機 2~3 次閃光
             for i = 1, math.random(2, 3) do
                 flash.BackgroundTransparency = 0.2
                 task.wait(0.05)
                 flash.BackgroundTransparency = 0.85
                 task.wait(0.08)
             end
-            -- 雷聲
             pcall(function()
                 local s = Instance.new("Sound")
-                s.SoundId = "rbxassetid://131886985" -- 雷聲
+                s.SoundId = THUNDER_SOUND
                 s.Volume = 2
+                s.PlaybackSpeed = 0.7
                 s.Parent = SoundService
                 s:Play()
-                task.delay(3, function() s:Destroy() end)
+                task.delay(5, function() s:Destroy() end)
             end)
         end
     end)
     showToast("閃電已開啟")
 end
 
-rainButton.Activated:Connect(function()
-    startRain(); closeAllMenus(); main.Visible = true
-end)
+rainButton.Activated:Connect(function() startRain(); closeAllMenus(); main.Visible = true end)
 sunnyButton.Activated:Connect(function()
     stopRain(); stopSnow(); stopThunder()
     thunderButton.Text = "閃電打雷"
     weatherButton.Text = "目前天氣：晴天"
-    closeAllMenus()
-    main.Visible = true
+    closeAllMenus(); main.Visible = true
 end)
 snowButton.Activated:Connect(function() startSnow(); closeAllMenus(); main.Visible = true end)
 thunderButton.Activated:Connect(function() startThunder() end)
 
--- 滑桿拖曳
 local rainDragging = false
 local snowDragging = false
-
 local function updateRainSlider(input)
     local width = math.max(rainTrack.AbsoluteSize.X, 1)
     local x = input.Position.X - rainTrack.AbsolutePosition.X
@@ -780,7 +645,6 @@ local function updateRainSlider(input)
     else rainLabel.Text = "雨量：大" end
     if rainEnabled then resizeRain() end
 end
-
 local function updateSnowSlider(input)
     local width = math.max(snowTrack.AbsoluteSize.X, 1)
     local x = input.Position.X - snowTrack.AbsolutePosition.X
@@ -791,16 +655,13 @@ local function updateSnowSlider(input)
     else snowLabel.Text = "雪量：大" end
     if snowEnabled then resizeSnow() end
 end
-
 rainTrack.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         rainDragging = true; updateRainSlider(input)
     end
 end)
 rainKnob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        rainDragging = true
-    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then rainDragging = true end
 end)
 snowTrack.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -808,37 +669,24 @@ snowTrack.InputBegan:Connect(function(input)
     end
 end)
 snowKnob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        snowDragging = true
-    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then snowDragging = true end
 end)
-
 UIS.InputChanged:Connect(function(input)
-    if rainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        updateRainSlider(input)
-    end
-    if snowDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        updateSnowSlider(input)
-    end
+    if rainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateRainSlider(input) end
+    if snowDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateSnowSlider(input) end
 end)
-
 UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         rainDragging = false; snowDragging = false
     end
 end)
 
---====================================================
--- 準心系統
---====================================================
 local crosshairMenu = createMenu(320, 360, 400)
 local crosshairScroll = crosshairMenu:FindFirstChild("Scroll")
 createTitle(crosshairScroll, "自訂準心")
-
 local rotationButton = createBtn(crosshairScroll, 52, "開啟旋轉準心", Color3.fromRGB(70, 110, 95), 40)
 local techButton = createBtn(crosshairScroll, 105, "開啟科技準心", Color3.fromRGB(48, 105, 78), 40)
 local blackDiamondButton = createBtn(crosshairScroll, 158, "開啟黑色菱形準星", Color3.fromRGB(30, 30, 30), 40)
-
 local scaleLabel = Instance.new("TextLabel")
 scaleLabel.Size = UDim2.new(1, -30, 0, 24)
 scaleLabel.Position = UDim2.fromOffset(15, 212)
@@ -849,7 +697,6 @@ scaleLabel.TextSize = 15
 scaleLabel.Font = Enum.Font.GothamBold
 scaleLabel.ZIndex = 1100
 scaleLabel.Parent = crosshairScroll
-
 local scaleTrack = Instance.new("Frame")
 scaleTrack.Size = UDim2.new(1, -40, 0, 8)
 scaleTrack.Position = UDim2.fromOffset(20, 245)
@@ -857,7 +704,6 @@ scaleTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
 scaleTrack.ZIndex = 1100
 scaleTrack.Parent = crosshairScroll
 local sctc = Instance.new("UICorner"); sctc.CornerRadius = UDim.new(0, 5); sctc.Parent = scaleTrack
-
 local scaleKnob = Instance.new("TextButton")
 scaleKnob.Size = UDim2.fromOffset(24, 24)
 scaleKnob.Position = UDim2.new(0.5, -12, 0.5, -12)
@@ -866,17 +712,9 @@ scaleKnob.Text = ""
 scaleKnob.ZIndex = 1200
 scaleKnob.Parent = scaleTrack
 local skc2 = Instance.new("UICorner"); skc2.CornerRadius = UDim.new(0, 20); skc2.Parent = scaleKnob
-
 local crosshairDone = createBtn(crosshairScroll, 285, "完成", Color3.fromRGB(92, 65, 76), 38)
-
-crosshairPageButton.Activated:Connect(function()
-    closeAllMenus()
-    crosshairMenu.Visible = true
-end)
-crosshairDone.Activated:Connect(function()
-    closeAllMenus()
-    main.Visible = true
-end)
+crosshairPageButton.Activated:Connect(function() closeAllMenus(); crosshairMenu.Visible = true end)
+crosshairDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 
 local crosshairScale = 1.0
 local rotationCrosshairEnabled = false
@@ -885,12 +723,10 @@ local rotationCrosshairHolder = nil
 local rotationCrosshairConnection = nil
 local rotationCrosshairLines = {}
 local rotationCrosshairRotation = 0
-
 local techCrosshairEnabled = false
 local techCrosshairGui = nil
 local techCrosshairConnection = nil
 local techCrosshairObjects = {}
-
 local blackDiamondEnabled = false
 local blackDiamondGui = nil
 local blackDiamondConnection = nil
@@ -903,14 +739,12 @@ local function removeRotatingCrosshair()
     rotationCrosshairHolder = nil
     table.clear(rotationCrosshairLines)
 end
-
 local function removeTechCrosshair()
     techCrosshairEnabled = false
     if techCrosshairConnection then techCrosshairConnection:Disconnect(); techCrosshairConnection = nil end
     if techCrosshairGui then techCrosshairGui:Destroy(); techCrosshairGui = nil end
     table.clear(techCrosshairObjects)
 end
-
 local function removeBlackDiamondCrosshair()
     blackDiamondEnabled = false
     if blackDiamondConnection then blackDiamondConnection:Disconnect(); blackDiamondConnection = nil end
@@ -928,7 +762,6 @@ local function createRotatingLine(parent, size, position)
     local s = Instance.new("UIStroke"); s.Thickness = 1.5; s.Color = Color3.fromRGB(10, 10, 10); s.Parent = line
     table.insert(rotationCrosshairLines, line)
 end
-
 local function createRotatingCrosshair()
     removeTechCrosshair(); removeBlackDiamondCrosshair(); removeRotatingCrosshair()
     rotationCrosshairEnabled = true
@@ -947,20 +780,17 @@ local function createRotatingCrosshair()
     rotationCrosshairHolder.BackgroundTransparency = 1
     rotationCrosshairHolder.ZIndex = 5000
     rotationCrosshairHolder.Parent = rotationCrosshairGui
-
     local function s(v) return v * crosshairScale end
     createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(s(5), s(22)), UDim2.new(0.5, 0, 0.5, s(-18)))
     createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(s(5), s(22)), UDim2.new(0.5, 0, 0.5, s(18)))
     createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(s(22), s(5)), UDim2.new(0.5, s(-18), 0.5, 0))
     createRotatingLine(rotationCrosshairHolder, UDim2.fromOffset(s(22), s(5)), UDim2.new(0.5, s(18), 0.5, 0))
-
     local dot = Instance.new("Frame")
     dot.Size = UDim2.fromOffset(s(4), s(4)); dot.Position = UDim2.fromScale(0.5, 0.5)
     dot.AnchorPoint = Vector2.new(0.5, 0.5)
     dot.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     dot.BorderSizePixel = 0; dot.ZIndex = 5002
     dot.Parent = rotationCrosshairHolder
-
     rotationCrosshairConnection = RunService.RenderStepped:Connect(function(dt)
         if not rotationCrosshairEnabled then return end
         rotationCrosshairRotation = rotationCrosshairRotation + dt * 65
@@ -972,7 +802,6 @@ local function createRotatingCrosshair()
         dot.BackgroundColor3 = color
     end)
 end
-
 local function addTechCircle(parent, size, thickness)
     local circle = Instance.new("Frame")
     circle.Size = UDim2.fromOffset(size, size); circle.Position = UDim2.fromScale(0.5, 0.5)
@@ -983,7 +812,6 @@ local function addTechCircle(parent, size, thickness)
     local stroke = Instance.new("UIStroke"); stroke.Thickness = thickness; stroke.Color = Color3.fromRGB(65, 245, 105); stroke.Parent = circle
     table.insert(techCrosshairObjects, stroke)
 end
-
 local function addTechLine(parent, size, position)
     local line = Instance.new("Frame")
     line.Size = size; line.Position = position
@@ -994,7 +822,6 @@ local function addTechLine(parent, size, position)
     local stroke = Instance.new("UIStroke"); stroke.Thickness = 1.3; stroke.Color = Color3.fromRGB(15, 80, 35); stroke.Parent = line
     table.insert(techCrosshairObjects, line)
 end
-
 local function createTechCrosshair()
     removeRotatingCrosshair(); removeBlackDiamondCrosshair(); removeTechCrosshair()
     techCrosshairEnabled = true
@@ -1004,7 +831,6 @@ local function createTechCrosshair()
     techCrosshairGui.IgnoreGuiInset = true
     techCrosshairGui.DisplayOrder = 1000001
     techCrosshairGui.Parent = PlayerGui
-
     local holder = Instance.new("Frame")
     local baseSize = 90 * crosshairScale
     holder.Size = UDim2.fromOffset(baseSize, baseSize)
@@ -1013,14 +839,12 @@ local function createTechCrosshair()
     holder.BackgroundTransparency = 1
     holder.ZIndex = 5090
     holder.Parent = techCrosshairGui
-
     local function s(v) return v * crosshairScale end
     addTechCircle(holder, s(88), 1.2); addTechCircle(holder, s(62), 2)
     addTechLine(holder, UDim2.fromOffset(s(5), s(23)), UDim2.new(0.5, 0, 0.5, s(-20)))
     addTechLine(holder, UDim2.fromOffset(s(5), s(23)), UDim2.new(0.5, 0, 0.5, s(20)))
     addTechLine(holder, UDim2.fromOffset(s(23), s(5)), UDim2.new(0.5, s(-20), 0.5, 0))
     addTechLine(holder, UDim2.fromOffset(s(23), s(5)), UDim2.new(0.5, s(20), 0.5, 0))
-
     local dot = Instance.new("Frame")
     dot.Size = UDim2.fromOffset(s(5), s(5))
     dot.Position = UDim2.fromScale(0.5, 0.5)
@@ -1029,7 +853,6 @@ local function createTechCrosshair()
     dot.BorderSizePixel = 0; dot.ZIndex = 5110
     dot.Parent = holder
     table.insert(techCrosshairObjects, dot)
-
     techCrosshairConnection = RunService.RenderStepped:Connect(function()
         if not techCrosshairEnabled then return end
         local pulse = (math.sin(os.clock() * 3) + 1) / 2
@@ -1042,7 +865,6 @@ local function createTechCrosshair()
         end
     end)
 end
-
 local function createBlackDiamondCrosshair()
     removeRotatingCrosshair(); removeTechCrosshair(); removeBlackDiamondCrosshair()
     blackDiamondEnabled = true
@@ -1052,7 +874,6 @@ local function createBlackDiamondCrosshair()
     blackDiamondGui.IgnoreGuiInset = true
     blackDiamondGui.DisplayOrder = 1000002
     blackDiamondGui.Parent = PlayerGui
-
     local baseSize = 80 * crosshairScale
     local holder = Instance.new("Frame")
     holder.Size = UDim2.fromOffset(baseSize, baseSize)
@@ -1061,59 +882,50 @@ local function createBlackDiamondCrosshair()
     holder.BackgroundTransparency = 1
     holder.ZIndex = 5200
     holder.Parent = blackDiamondGui
-
     local sz = 14 * crosshairScale
     local th = 2.5 * crosshairScale
-
     local topLine = Instance.new("Frame")
     topLine.Size = UDim2.fromOffset(sz, th)
     topLine.Position = UDim2.new(0.5, -sz/2, 0.5, -sz)
     topLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     topLine.BorderSizePixel = 0; topLine.ZIndex = 5201; topLine.Parent = holder
     table.insert(blackDiamondObjects, topLine)
-
     local bottomLine = Instance.new("Frame")
     bottomLine.Size = UDim2.fromOffset(sz, th)
     bottomLine.Position = UDim2.new(0.5, -sz/2, 0.5, sz - th)
     bottomLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     bottomLine.BorderSizePixel = 0; bottomLine.ZIndex = 5201; bottomLine.Parent = holder
     table.insert(blackDiamondObjects, bottomLine)
-
     local leftLine = Instance.new("Frame")
     leftLine.Size = UDim2.fromOffset(th, sz)
     leftLine.Position = UDim2.new(0.5, -sz/2 - th, 0.5, -sz/2)
     leftLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     leftLine.BorderSizePixel = 0; leftLine.ZIndex = 5201; leftLine.Parent = holder
     table.insert(blackDiamondObjects, leftLine)
-
     local rightLine = Instance.new("Frame")
     rightLine.Size = UDim2.fromOffset(th, sz)
     rightLine.Position = UDim2.new(0.5, sz/2, 0.5, -sz/2)
     rightLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     rightLine.BorderSizePixel = 0; rightLine.ZIndex = 5201; rightLine.Parent = holder
     table.insert(blackDiamondObjects, rightLine)
-
     local centerDot = Instance.new("Frame")
     centerDot.Size = UDim2.fromOffset(4 * crosshairScale, 4 * crosshairScale)
     centerDot.Position = UDim2.new(0.5, -2 * crosshairScale, 0.5, -2 * crosshairScale)
     centerDot.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
     centerDot.BorderSizePixel = 0; centerDot.ZIndex = 5202; centerDot.Parent = holder
     table.insert(blackDiamondObjects, centerDot)
-
     local crossH = Instance.new("Frame")
     crossH.Size = UDim2.fromOffset(2 * crosshairScale, 8 * crosshairScale)
     crossH.Position = UDim2.new(0.5, -1 * crosshairScale, 0.5, -4 * crosshairScale)
     crossH.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     crossH.BorderSizePixel = 0; crossH.ZIndex = 5203; crossH.Parent = holder
     table.insert(blackDiamondObjects, crossH)
-
     local crossV = Instance.new("Frame")
     crossV.Size = UDim2.fromOffset(8 * crosshairScale, 2 * crosshairScale)
     crossV.Position = UDim2.new(0.5, -4 * crosshairScale, 0.5, -1 * crosshairScale)
     crossV.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     crossV.BorderSizePixel = 0; crossV.ZIndex = 5203; crossV.Parent = holder
     table.insert(blackDiamondObjects, crossV)
-
     blackDiamondConnection = RunService.RenderStepped:Connect(function()
         if not blackDiamondEnabled then return end
         local pulse = (math.sin(os.clock() * 2) + 1) / 2
@@ -1123,7 +935,6 @@ local function createBlackDiamondCrosshair()
         end
     end)
 end
-
 rotationButton.Activated:Connect(function()
     if rotationCrosshairEnabled then
         removeRotatingCrosshair(); rotationButton.Text = "開啟旋轉準心"
@@ -1133,7 +944,6 @@ rotationButton.Activated:Connect(function()
         createRotatingCrosshair(); rotationButton.Text = "關閉旋轉準心"
     end
 end)
-
 techButton.Activated:Connect(function()
     if techCrosshairEnabled then
         removeTechCrosshair(); techButton.Text = "開啟科技準心"
@@ -1143,7 +953,6 @@ techButton.Activated:Connect(function()
         createTechCrosshair(); techButton.Text = "關閉科技準心"
     end
 end)
-
 blackDiamondButton.Activated:Connect(function()
     if blackDiamondEnabled then
         removeBlackDiamondCrosshair(); blackDiamondButton.Text = "開啟黑色菱形準星"
@@ -1153,7 +962,6 @@ blackDiamondButton.Activated:Connect(function()
         createBlackDiamondCrosshair(); blackDiamondButton.Text = "關閉黑色菱形準星"
     end
 end)
-
 local scaleDragging = false
 local function updateScaleSlider(input)
     local width = math.max(scaleTrack.AbsoluteSize.X, 1)
@@ -1166,35 +974,27 @@ local function updateScaleSlider(input)
     if techCrosshairEnabled then createTechCrosshair() end
     if blackDiamondEnabled then createBlackDiamondCrosshair() end
 end
-
 scaleTrack.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         scaleDragging = true; updateScaleSlider(input)
     end
 end)
 scaleKnob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        scaleDragging = true
-    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then scaleDragging = true end
 end)
 UIS.InputChanged:Connect(function(input)
-    if scaleDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        updateScaleSlider(input)
-    end
+    if scaleDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateScaleSlider(input) end
 end)
 UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        scaleDragging = false
-    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then scaleDragging = false end
 end)
 
 --====================================================
--- 畫面設定頁面（含低血量警示 + 景深模糊）
+-- 畫面設定頁面（修正：高度回到 360，景深按鈕放在低血量下方）
 --====================================================
-local settingMenu = createMenu(320, 380, 440)
+local settingMenu = createMenu(320, 360, 420)
 local settingScroll = settingMenu:FindFirstChild("Scroll")
 createTitle(settingScroll, "畫面設定")
-
 local fpsButton = createBtn(settingScroll, 52, "增加FPS", Color3.fromRGB(70, 110, 95), 40)
 local minecraftButton = createBtn(settingScroll, 105, "麥塊紋理包", Color3.fromRGB(105, 92, 68), 40)
 local blackTextureButton = createBtn(settingScroll, 158, "黑色紋理", Color3.fromRGB(40, 40, 45), 40)
@@ -1203,15 +1003,8 @@ local fpsCounterButton = createBtn(settingScroll, 264, "FPS 顯示器", Color3.f
 local lowHpButton = createBtn(settingScroll, 317, "低血量警示", Color3.fromRGB(130, 60, 60), 40)
 local dofButton = createBtn(settingScroll, 370, "景深模糊", Color3.fromRGB(70, 80, 120), 40)
 local settingDone = createBtn(settingScroll, 423, "完成", Color3.fromRGB(92, 65, 76), 38)
-
-settingPageButton.Activated:Connect(function()
-    closeAllMenus()
-    settingMenu.Visible = true
-end)
-settingDone.Activated:Connect(function()
-    closeAllMenus()
-    main.Visible = true
-end)
+settingPageButton.Activated:Connect(function() closeAllMenus(); settingMenu.Visible = true end)
+settingDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 
 local fpsEnabled = false
 local minecraftEnabled = false
@@ -1224,6 +1017,7 @@ local fpsFrameCount, fpsTimeElapsed = 0, 0
 -- 低血量警示
 local lowHpEnabled = false
 local lowHpGui = nil
+local lowHpFrame = nil
 local lowHpConnection = nil
 
 local function toggleLowHp()
@@ -1231,6 +1025,7 @@ local function toggleLowHp()
         lowHpEnabled = false
         if lowHpConnection then lowHpConnection:Disconnect(); lowHpConnection = nil end
         if lowHpGui then lowHpGui:Destroy(); lowHpGui = nil end
+        lowHpFrame = nil
         lowHpButton.Text = "低血量警示"
         showToast("低血量警示已關閉")
     else
@@ -1242,53 +1037,21 @@ local function toggleLowHp()
         lowHpGui.DisplayOrder = 999996
         lowHpGui.Parent = PlayerGui
 
-        -- 四邊紅色漸層框架
-        local frames = {}
-        local dirs = {
-            { UDim2.new(0, 0, 0, 0), UDim2.new(1, 0, 0, 60), "Top" },
-            { UDim2.new(0, 0, 1, -60), UDim2.new(1, 0, 0, 60), "Bottom" },
-            { UDim2.new(0, 0, 0, 0), UDim2.new(0, 60, 1, 0), "Left" },
-            { UDim2.new(1, -60, 0, 0), UDim2.new(0, 60, 1, 0), "Right" },
-        }
-        for _, d in ipairs(dirs) do
-            local f = Instance.new("Frame")
-            f.Size = d[2]
-            f.Position = d[1]
-            f.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-            f.BackgroundTransparency = 1
-            f.BorderSizePixel = 0
-            f.ZIndex = 999996
-            f.Parent = lowHpGui
-            table.insert(frames, f)
-            -- 漸層
-            local grad = Instance.new("UIGradient")
-            if d[3] == "Top" then
-                grad.Rotation = 90
-                grad.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.4),
-                    NumberSequenceKeypoint.new(1, 1)
-                })
-            elseif d[3] == "Bottom" then
-                grad.Rotation = -90
-                grad.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.4),
-                    NumberSequenceKeypoint.new(1, 1)
-                })
-            elseif d[3] == "Left" then
-                grad.Rotation = 0
-                grad.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.4),
-                    NumberSequenceKeypoint.new(1, 1)
-                })
-            else
-                grad.Rotation = 180
-                grad.Transparency = NumberSequence.new({
-                    NumberSequenceKeypoint.new(0, 0.4),
-                    NumberSequenceKeypoint.new(1, 1)
-                })
-            end
-            grad.Parent = f
-        end
+        lowHpFrame = Instance.new("Frame")
+        lowHpFrame.Size = UDim2.fromScale(1, 1)
+        lowHpFrame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
+        lowHpFrame.BackgroundTransparency = 1
+        lowHpFrame.BorderSizePixel = 0
+        lowHpFrame.ZIndex = 999996
+        lowHpFrame.Parent = lowHpGui
+        local grad = Instance.new("UIGradient")
+        grad.Transparency = NumberSequence.new({
+            NumberSequenceKeypoint.new(0, 0.2),
+            NumberSequenceKeypoint.new(0.5, 1),
+            NumberSequenceKeypoint.new(1, 0.2)
+        })
+        grad.Rotation = 90
+        grad.Parent = lowHpFrame
 
         lowHpConnection = RunService.RenderStepped:Connect(function()
             local char = Player.Character
@@ -1296,16 +1059,12 @@ local function toggleLowHp()
             local humanoid = char:FindFirstChildOfClass("Humanoid")
             if not humanoid then return end
             local ratio = humanoid.Health / humanoid.MaxHealth
-            local targetTrans = 1
-            if ratio <= 0.3 then
-                -- 血量越低越紅
-                targetTrans = 0.5 - (0.3 - ratio) * 1.5
-                targetTrans = math.clamp(targetTrans, 0.15, 0.6)
-            end
-            for _, f in ipairs(frames) do
-                if f and f.Parent then
-                    f.BackgroundTransparency = f.BackgroundTransparency + (targetTrans - f.BackgroundTransparency) * 0.1
-                end
+            if ratio <= 0.3 and lowHpFrame then
+                local intensity = 0.75 - (0.3 - ratio) * 2.75
+                intensity = math.clamp(intensity, 0.2, 0.75)
+                lowHpFrame.BackgroundTransparency = intensity
+            else
+                if lowHpFrame then lowHpFrame.BackgroundTransparency = 1 end
             end
         end)
 
@@ -1313,13 +1072,11 @@ local function toggleLowHp()
         showToast("低血量警示已開啟")
     end
 end
-
 lowHpButton.Activated:Connect(toggleLowHp)
 
 -- 景深模糊
 local dofEnabled = false
 local dofEffect = nil
-
 local function toggleDOF()
     if dofEnabled then
         dofEnabled = false
@@ -1339,7 +1096,6 @@ local function toggleDOF()
         showToast("景深模糊已開啟")
     end
 end
-
 dofButton.Activated:Connect(toggleDOF)
 
 fpsButton.Activated:Connect(function()
@@ -1357,7 +1113,6 @@ fpsButton.Activated:Connect(function()
     end)
     showToast("增加FPS已載入")
 end)
-
 minecraftButton.Activated:Connect(function()
     if minecraftEnabled then showToast("麥塊紋理包已載入"); return end
     minecraftEnabled = true
@@ -1370,7 +1125,6 @@ minecraftButton.Activated:Connect(function()
     end)
     showToast("麥塊紋理包已載入")
 end)
-
 blackTextureButton.Activated:Connect(function()
     if blackTextureEnabled then showToast("黑色紋理已載入"); return end
     blackTextureEnabled = true
@@ -1383,7 +1137,6 @@ blackTextureButton.Activated:Connect(function()
     end)
     showToast("黑色紋理已載入")
 end)
-
 stretchButton.Activated:Connect(function()
     if stretchEnabled then
         stretchEnabled = false
@@ -1401,7 +1154,6 @@ stretchButton.Activated:Connect(function()
         showToast("螢幕拉伸已開啟")
     end
 end)
-
 fpsCounterButton.Activated:Connect(function()
     if fpsCounterEnabled then
         fpsCounterEnabled = false
@@ -1419,7 +1171,6 @@ fpsCounterButton.Activated:Connect(function()
         fpsGui.IgnoreGuiInset = true
         fpsGui.DisplayOrder = 999998
         fpsGui.Parent = PlayerGui
-
         fpsLabel = Instance.new("TextLabel")
         fpsLabel.Size = UDim2.fromOffset(120, 32)
         fpsLabel.Position = UDim2.new(1, -130, 0, 12)
@@ -1432,7 +1183,6 @@ fpsCounterButton.Activated:Connect(function()
         fpsLabel.ZIndex = 999999
         fpsLabel.Parent = fpsGui
         local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(0, 8); fc.Parent = fpsLabel
-
         fpsConnection = RunService.RenderStepped:Connect(function(dt)
             fpsFrameCount = fpsFrameCount + 1
             fpsTimeElapsed = fpsTimeElapsed + dt
@@ -1453,13 +1203,9 @@ fpsCounterButton.Activated:Connect(function()
     end
 end)
 
---====================================================
--- 音樂頁面
---====================================================
 local musicMenu = createMenu(320, 380, 650)
 local musicScroll = musicMenu:FindFirstChild("Scroll")
 createTitle(musicScroll, "音樂播放器")
-
 local musicIdBox = Instance.new("TextBox")
 musicIdBox.Size = UDim2.new(1, -30, 0, 42)
 musicIdBox.Position = UDim2.fromOffset(15, 52)
@@ -1473,10 +1219,8 @@ musicIdBox.ZIndex = 1100
 musicIdBox.Parent = musicScroll
 musicIdBox.ClearTextOnFocus = false
 local mic = Instance.new("UICorner"); mic.CornerRadius = UDim.new(0, 10); mic.Parent = musicIdBox
-
 local musicPlayButton = createBtn(musicScroll, 105, "播放", Color3.fromRGB(70, 130, 90), 40)
 local musicStopButton = createBtn(musicScroll, 158, "停止播放", Color3.fromRGB(130, 70, 70), 40)
-
 local musicVolumeLabel = Instance.new("TextLabel")
 musicVolumeLabel.Size = UDim2.new(1, -30, 0, 24)
 musicVolumeLabel.Position = UDim2.fromOffset(15, 212)
@@ -1487,7 +1231,6 @@ musicVolumeLabel.TextSize = 15
 musicVolumeLabel.Font = Enum.Font.GothamBold
 musicVolumeLabel.ZIndex = 1100
 musicVolumeLabel.Parent = musicScroll
-
 local musicVolumeTrack = Instance.new("Frame")
 musicVolumeTrack.Size = UDim2.new(1, -40, 0, 8)
 musicVolumeTrack.Position = UDim2.fromOffset(20, 245)
@@ -1495,7 +1238,6 @@ musicVolumeTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
 musicVolumeTrack.ZIndex = 1100
 musicVolumeTrack.Parent = musicScroll
 local mvtc = Instance.new("UICorner"); mvtc.CornerRadius = UDim.new(0, 5); mvtc.Parent = musicVolumeTrack
-
 local musicVolumeKnob = Instance.new("TextButton")
 musicVolumeKnob.Size = UDim2.fromOffset(24, 24)
 musicVolumeKnob.Position = UDim2.new(1, -12, 0.5, -12)
@@ -1504,7 +1246,6 @@ musicVolumeKnob.Text = ""
 musicVolumeKnob.ZIndex = 1200
 musicVolumeKnob.Parent = musicVolumeTrack
 local mvkc = Instance.new("UICorner"); mvkc.CornerRadius = UDim.new(0, 20); mvkc.Parent = musicVolumeKnob
-
 local saveTitle = Instance.new("TextLabel")
 saveTitle.Size = UDim2.new(1, -30, 0, 22)
 saveTitle.Position = UDim2.fromOffset(15, 285)
@@ -1515,7 +1256,6 @@ saveTitle.TextSize = 13
 saveTitle.Font = Enum.Font.GothamBold
 saveTitle.ZIndex = 1100
 saveTitle.Parent = musicScroll
-
 local musicSaveNameBox = Instance.new("TextBox")
 musicSaveNameBox.Size = UDim2.new(1, -30, 0, 38)
 musicSaveNameBox.Position = UDim2.fromOffset(15, 310)
@@ -1529,10 +1269,8 @@ musicSaveNameBox.ZIndex = 1100
 musicSaveNameBox.Parent = musicScroll
 musicSaveNameBox.ClearTextOnFocus = false
 local msnc = Instance.new("UICorner"); msnc.CornerRadius = UDim.new(0, 10); msnc.Parent = musicSaveNameBox
-
 local musicSaveButton = createBtn(musicScroll, 355, "存檔音樂", Color3.fromRGB(70, 100, 140), 38)
 local musicLoadButton = createBtn(musicScroll, 398, "載入上次所有存檔", Color3.fromRGB(100, 75, 130), 38)
-
 local musicSaveListFrame = Instance.new("Frame")
 musicSaveListFrame.Name = "SaveList"
 musicSaveListFrame.Size = UDim2.new(1, -30, 0, 200)
@@ -1540,30 +1278,18 @@ musicSaveListFrame.Position = UDim2.fromOffset(15, 445)
 musicSaveListFrame.BackgroundTransparency = 1
 musicSaveListFrame.ZIndex = 1100
 musicSaveListFrame.Parent = musicScroll
-
 local musicDone = createBtn(musicScroll, 560, "完成", Color3.fromRGB(92, 65, 76), 38)
-
-musicPageButton.Activated:Connect(function()
-    closeAllMenus()
-    musicMenu.Visible = true
-end)
-musicDone.Activated:Connect(function()
-    closeAllMenus()
-    main.Visible = true
-end)
+musicPageButton.Activated:Connect(function() closeAllMenus(); musicMenu.Visible = true end)
+musicDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 
 local musicSound = nil
 local musicVolume = 1.0
 local musicSaves = {}
-
 local function saveMusicData()
     pcall(function()
-        if writefile then
-            writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(musicSaves))
-        end
+        if writefile then writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(musicSaves)) end
     end)
 end
-
 local function loadMusicData()
     local s, data = pcall(function()
         if readfile and isfile and isfile(SAVE_FILE) then
@@ -1571,13 +1297,9 @@ local function loadMusicData()
         end
         return nil
     end)
-    if s and data and type(data) == "table" then
-        musicSaves = data
-        return true
-    end
+    if s and data and type(data) == "table" then musicSaves = data; return true end
     return false
 end
-
 local function playMusicById(id)
     if not id or id == "" then showToast("請輸入音樂 ID"); return end
     if musicSound then musicSound:Destroy(); musicSound = nil end
@@ -1592,7 +1314,6 @@ local function playMusicById(id)
     end)
     if s then showToast("音樂播放中") else showToast("音樂播放失敗") end
 end
-
 local function stopMusic()
     if musicSound then
         pcall(function() musicSound:Stop(); musicSound:Destroy() end)
@@ -1600,7 +1321,6 @@ local function stopMusic()
     end
     showToast("音樂已停止")
 end
-
 local function deleteSave(index)
     if musicSaves[index] then
         local name = musicSaves[index].name
@@ -1610,7 +1330,6 @@ local function deleteSave(index)
         showToast("已刪除存檔：" .. name)
     end
 end
-
 function refreshMusicSaveList()
     for _, child in ipairs(musicSaveListFrame:GetChildren()) do
         if child:IsA("TextButton") or child:IsA("TextLabel") then child:Destroy() end
@@ -1629,11 +1348,9 @@ function refreshMusicSaveList()
         btn.Parent = musicSaveListFrame
         local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = btn
         btn.Activated:Connect(function() playClick(); playMusicById(save.id) end)
-
         local delBtn = Instance.new("TextButton")
         delBtn.Size = UDim2.fromOffset(60, 34)
         delBtn.Position = UDim2.fromOffset(15 + (musicSaveListFrame.AbsoluteSize.X - 90) + 5, y)
-        delBtn.AnchorPoint = Vector2.new(0, 0)
         delBtn.BackgroundColor3 = Color3.fromRGB(150, 60, 60)
         delBtn.Text = "刪除"
         delBtn.TextColor3 = Color3.fromRGB(255, 220, 220)
@@ -1643,7 +1360,6 @@ function refreshMusicSaveList()
         delBtn.Parent = musicSaveListFrame
         local dc = Instance.new("UICorner"); dc.CornerRadius = UDim.new(0, 8); dc.Parent = delBtn
         delBtn.Activated:Connect(function() playClick(); deleteSave(i) end)
-
         y = y + 40
     end
     if #musicSaves == 0 then
@@ -1659,7 +1375,6 @@ function refreshMusicSaveList()
         empty.Parent = musicSaveListFrame
     end
 end
-
 musicPlayButton.Activated:Connect(function() playMusicById(musicIdBox.Text) end)
 musicStopButton.Activated:Connect(stopMusic)
 musicSaveButton.Activated:Connect(function()
@@ -1682,7 +1397,6 @@ musicLoadButton.Activated:Connect(function()
         showToast("沒有找到存檔")
     end
 end)
-
 local mvDragging = false
 local function updateVol(input)
     local width = math.max(musicVolumeTrack.AbsoluteSize.X, 1)
@@ -1693,46 +1407,29 @@ local function updateVol(input)
     musicVolumeLabel.Text = string.format("音量大小：%d%%", math.floor(ratio * 100))
     if musicSound then pcall(function() musicSound.Volume = musicVolume end) end
 end
-
 musicVolumeTrack.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
         mvDragging = true; updateVol(input)
     end
 end)
 musicVolumeKnob.InputBegan:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        mvDragging = true
-    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then mvDragging = true end
 end)
 UIS.InputChanged:Connect(function(input)
-    if mvDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-        updateVol(input)
-    end
+    if mvDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateVol(input) end
 end)
 UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        mvDragging = false
-    end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then mvDragging = false end
 end)
 
---====================================================
--- 清單 & 快捷鍵
---====================================================
 allMenus = { main, timeMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
-
 UIS.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.I then
         local anyOpen = false
-        for _, m in ipairs(allMenus) do
-            if m and m.Visible then anyOpen = true; break end
-        end
-        if anyOpen then
-            closeAllMenus()
-        else
-            main.Visible = true
-        end
+        for _, m in ipairs(allMenus) do if m and m.Visible then anyOpen = true; break end end
+        if anyOpen then closeAllMenus() else main.Visible = true end
     end
 end)
 
-print("湊企鵝mod：完整版已載入（低血量 + 水面反射 + 閃電 + 景深 + 按鈕音效）")
+print("湊企鵝mod：完整版已載入（低血量 + 閃電 + 景深）")
