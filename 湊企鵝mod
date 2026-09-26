@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜低血量警示 + 閃電打雷 + 音效
+-- 湊企鵝mod｜低血量警示 + 閃電打雷（音效調整）
 --====================================================
 
 local Players = game:GetService("Players")
@@ -19,8 +19,6 @@ local STRETCH_URL = "https://rawscripts.net/raw/Universal-Script-Stretched-Resol
 local SAVE_FILE = "PenguinMod_MusicSaves.json"
 local CLICK_SOUND = "rbxassetid://6895079853"
 local THUNDER_SOUND = "rbxassetid://131300621"
-local STARTUP_SOUND = "rbxassetid://119974879573475"
-local RAIN_SOUND = "rbxassetid://237985445"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
 for _, obj in ipairs(PlayerGui:GetChildren()) do
@@ -36,46 +34,19 @@ gui.IgnoreGuiInset = true
 gui.DisplayOrder = 999999
 gui.Parent = PlayerGui
 
---====================================================
--- 音效函式（先定義，後面才能呼叫）
---====================================================
-local function playSound(id, vol, looped, speed)
-    local s = nil
+-- 按鈕音效（音量更大）
+local function playClick()
     pcall(function()
-        s = Instance.new("Sound")
-        s.SoundId = id
-        s.Volume = vol or 1
-        s.Looped = looped or false
-        s.PlaybackSpeed = speed or 1
+        local s = Instance.new("Sound")
+        s.SoundId = CLICK_SOUND
+        s.Volume = 2.0
+        s.PlaybackSpeed = 0.85
         s.Parent = SoundService
         s:Play()
+        task.delay(0.5, function() s:Destroy() end)
     end)
-    if s and not looped then
-        task.delay(10, function()
-            pcall(function() s:Destroy() end)
-        end)
-    end
-    return s
 end
 
-local function playClick() playSound(CLICK_SOUND, 2.0, false, 0.85) end
-local function playStartup() playSound(STARTUP_SOUND, 3, false) end
-
-local rainSoundObj = nil
-local function startRainSound()
-    if rainSoundObj then return end
-    rainSoundObj = playSound(RAIN_SOUND, 2, true)
-end
-local function stopRainSound()
-    if rainSoundObj then
-        pcall(function() rainSoundObj:Stop(); rainSoundObj:Destroy() end)
-        rainSoundObj = nil
-    end
-end
-
---====================================================
--- RGB
---====================================================
 local rgbObjects = {}
 local function addRGB(obj, prop) table.insert(rgbObjects, {object = obj, property = prop}) end
 local function rgbColor(speed, offset) return Color3.fromHSV(((os.clock() * speed) + (offset or 0)) % 1, 0.58, 0.93) end
@@ -95,9 +66,6 @@ local function addRGBStroke(obj, thickness)
     return s
 end
 
---====================================================
--- 開場動畫
---====================================================
 local loading = Instance.new("Frame")
 loading.Size = UDim2.fromScale(1, 1)
 loading.BackgroundColor3 = Color3.fromRGB(8, 10, 18)
@@ -147,12 +115,8 @@ task.delay(3, function()
     TweenService:Create(loading, TweenInfo.new(0.65), {BackgroundTransparency = 1}):Play()
     task.wait(0.7)
     if loading then loading:Destroy() end
-    playStartup()
 end)
 
---====================================================
--- 懸浮球
---====================================================
 local orb = Instance.new("ImageButton")
 orb.Name = PREFIX .. "Orb"
 orb.Size = UDim2.fromOffset(64, 64)
@@ -165,9 +129,6 @@ orb.Parent = gui
 local oc = Instance.new("UICorner"); oc.CornerRadius = UDim.new(0, 32); oc.Parent = orb
 addRGBStroke(orb, 3)
 
---====================================================
--- 通用函式
---====================================================
 local function createBtn(parent, y, text, color, h)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(1, -30, 0, h or 40)
@@ -241,9 +202,6 @@ local function showToast(text)
     end)
 end
 
---====================================================
--- 主介面
---====================================================
 local main = createMenu(320, 380, 500)
 local mainScroll = main:FindFirstChild("Scroll")
 createTitle(mainScroll, "湊企鵝mod")
@@ -265,9 +223,6 @@ local settingPageButton = createBtn(mainScroll, 285, "畫面設定", Color3.from
 local musicPageButton = createBtn(mainScroll, 335, "音樂", Color3.fromRGB(80, 100, 150))
 local restoreButton = createBtn(mainScroll, 385, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 
---====================================================
--- 懸浮球拖曳
---====================================================
 local orbDragging = false
 local orbMoved = false
 local dragStart, orbStart
@@ -299,9 +254,6 @@ UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then orbDragging = false end
 end)
 
---====================================================
--- 光影
---====================================================
 local savedLighting = {}
 local savedTerrain = {}
 for _, p in ipairs({"Technology","GlobalShadows","Brightness","ClockTime","ExposureCompensation","Ambient","OutdoorAmbient","ColorShift_Top","ColorShift_Bottom","EnvironmentDiffuseScale","EnvironmentSpecularScale","ShadowSoftness","FogColor","FogStart","FogEnd"}) do
@@ -437,9 +389,6 @@ restoreButton.Activated:Connect(function()
     toggleButton.Text = "開啟光影"
 end)
 
---====================================================
--- 時間頁面
---====================================================
 local timeMenu = createMenu(320, 380, 400)
 local timeScroll = timeMenu:FindFirstChild("Scroll")
 createTitle(timeScroll, "當前時間")
@@ -457,9 +406,6 @@ nightButton.Activated:Connect(function() selectMode("夜間", "夜間") end)
 fogButton.Activated:Connect(function() selectMode("起霧", "起霧") end)
 sunsetButton.Activated:Connect(function() selectMode("夕陽", "夕陽") end)
 
---====================================================
--- 天氣頁面
---====================================================
 local weatherMenu = createMenu(320, 400, 440)
 local weatherScroll = weatherMenu:FindFirstChild("Scroll")
 createTitle(weatherScroll, "當前天氣")
@@ -521,9 +467,6 @@ local weatherDone = createBtn(weatherScroll, 350, "完成", Color3.fromRGB(92, 6
 weatherButton.Activated:Connect(function() closeAllMenus(); weatherMenu.Visible = true end)
 weatherDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 
---====================================================
--- 雨 / 雪 / 閃電
---====================================================
 local rainAmount = 0.55
 local snowAmount = 0.55
 local rainEnabled = false
@@ -537,7 +480,6 @@ local function stopRain()
     if rainConnection then rainConnection:Disconnect(); rainConnection = nil end
     if rainFolder then rainFolder:Destroy(); rainFolder = nil end
     table.clear(rainDrops); rainEnabled = false
-    stopRainSound()
 end
 local function stopSnow()
     if snowConnection then snowConnection:Disconnect(); snowConnection = nil end
@@ -587,7 +529,6 @@ local function startRain()
         end
     end)
     weatherButton.Text = "目前天氣：下雨"
-    startRainSound()
 end
 local function snowCount() return math.floor(80 + snowAmount * 700) end
 local function resizeSnow()
@@ -650,7 +591,8 @@ local function startThunder()
     thunderGui.Name = PREFIX .. "Thunder"
     thunderGui.ResetOnSpawn = false
     thunderGui.IgnoreGuiInset = true
-    thunderGui.DisplayOrder = 999997    thunderGui.Parent = PlayerGui
+    thunderGui.DisplayOrder = 999997
+    thunderGui.Parent = PlayerGui
     local flash = Instance.new("Frame")
     flash.Size = UDim2.fromScale(1, 1)
     flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
@@ -668,7 +610,15 @@ local function startThunder()
                 flash.BackgroundTransparency = 0.85
                 task.wait(0.08)
             end
-            playSound(THUNDER_SOUND, 2, false, 0.7)
+            pcall(function()
+                local s = Instance.new("Sound")
+                s.SoundId = THUNDER_SOUND
+                s.Volume = 2
+                s.PlaybackSpeed = 0.7
+                s.Parent = SoundService
+                s:Play()
+                task.delay(5, function() s:Destroy() end)
+            end)
         end
     end)
     showToast("閃電已開啟")
@@ -684,9 +634,6 @@ end)
 snowButton.Activated:Connect(function() startSnow(); closeAllMenus(); main.Visible = true end)
 thunderButton.Activated:Connect(function() startThunder() end)
 
---====================================================
--- 滑桿
---====================================================
 local rainDragging = false
 local snowDragging = false
 local function updateRainSlider(input)
@@ -735,9 +682,6 @@ UIS.InputEnded:Connect(function(input)
     end
 end)
 
---====================================================
--- 準心頁面
---====================================================
 local crosshairMenu = createMenu(320, 360, 400)
 local crosshairScroll = crosshairMenu:FindFirstChild("Scroll")
 createTitle(crosshairScroll, "自訂準心")
@@ -1046,9 +990,6 @@ UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then scaleDragging = false end
 end)
 
---====================================================
--- 畫面設定頁面
---====================================================
 local settingMenu = createMenu(320, 360, 420)
 local settingScroll = settingMenu:FindFirstChild("Scroll")
 createTitle(settingScroll, "畫面設定")
@@ -1234,9 +1175,6 @@ fpsCounterButton.Activated:Connect(function()
     end
 end)
 
---====================================================
--- 音樂頁面
---====================================================
 local musicMenu = createMenu(320, 380, 650)
 local musicScroll = musicMenu:FindFirstChild("Scroll")
 createTitle(musicScroll, "音樂播放器")
@@ -1456,9 +1394,6 @@ UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then mvDragging = false end
 end)
 
---====================================================
--- 快捷鍵 I
---====================================================
 allMenus = { main, timeMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
 UIS.InputBegan:Connect(function(input, processed)
     if processed then return end
@@ -1469,4 +1404,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：完整版已載入（含音效）")
+print("湊企鵝mod：低血量警示 + 閃電打雷版已載入（音效已更新）")
