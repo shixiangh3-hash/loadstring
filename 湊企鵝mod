@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜完整整合版（下雪 + 音樂存檔系統）
+-- 湊企鵝mod｜完整整合版（手動載入存檔 + 音量滑桿）
 --====================================================
 
 local Players = game:GetService("Players")
@@ -20,7 +20,7 @@ local BLACK_TEXTURE_URL = "https://pastebin.com/raw/xWZRF6Py"
 local STRETCH_URL = "https://rawscripts.net/raw/Universal-Script-Stretched-Resolution-4:3-rest-aspect-ratio-226525"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
--- 存檔檔案路徑（使用 Roblox 的 writefile/readfile，部分執行器支援）
+-- 存檔檔案路徑
 local SAVE_FILE = "PenguinMod_MusicSaves.json"
 
 --==================================================
@@ -71,8 +71,10 @@ local fpsFrameCount, fpsTimeElapsed, fpsCurrent = 0, 0, 0
 -- 音樂
 local musicSound = nil
 local musicPlaying = false
-local musicSaves = {} -- { {name=..., id=...}, ... }
-local musicSaveButtons = {} -- 動態生成的按鈕
+local musicVolume = 1.0
+local musicVolumeDragging = false
+local musicSaves = {}
+local musicSaveButtons = {}
 
 local fpsGrayEffect, fpsGrayAtmosphere = nil, nil
 local rgbObjects, savedLighting, savedTerrain = {}, {}, {}
@@ -86,6 +88,7 @@ local rotationButton, techButton, blackDiamondButton = nil, nil, nil
 local fpsCounterButton = nil
 local musicPageButton, musicIdBox, musicPlayButton, musicStopButton = nil, nil, nil, nil
 local musicSaveNameBox, musicSaveButton, musicLoadButton = nil, nil, nil
+local musicVolumeLabel, musicVolumeTrack, musicVolumeKnob = nil, nil, nil
 local musicSaveListFrame = nil
 
 --==================================================
@@ -165,7 +168,7 @@ local function createTitle(parent, text)
 end
 
 --==================================================
--- 存檔系統（使用 writefile / readfile，若執行器不支援則自動降級為記憶體儲存）
+-- 存檔系統（手動載入）
 --==================================================
 local function saveMusicData()
     local success, err = pcall(function()
@@ -553,7 +556,7 @@ local cycleButton = createButton(timeScroll, 272, "日夜循環", Color3.fromRGB
 local timeDone = createButton(timeScroll, 328, "完成", Color3.fromRGB(92, 65, 76), 38)
 
 --==================================================
--- 天氣頁面（雪花模式已改名為下雪）
+-- 天氣頁面
 --==================================================
 weatherMenu = createMenu(320, 360, 380)
 local weatherScroll = getScroll(weatherMenu)
@@ -625,9 +628,9 @@ scaleKnob.ZIndex = 1200; scaleKnob.Parent = scaleTrack; addCorner(scaleKnob, 20)
 local crosshairDone = createButton(crosshairScroll, 285, "完成", Color3.fromRGB(92, 65, 76), 38)
 
 --==================================================
--- 音樂頁面（新增存檔功能）
+-- 音樂頁面（新增音量滑桿）
 --==================================================
-musicMenu = createMenu(320, 380, 520)
+musicMenu = createMenu(320, 420, 600)
 local musicScroll = getScroll(musicMenu)
 createTitle(musicScroll, "音樂播放器")
 
@@ -643,15 +646,32 @@ addCorner(musicIdBox, 10); addStroke(musicIdBox, 1.5)
 musicPlayButton = createButton(musicScroll, 105, "播放", Color3.fromRGB(70, 130, 90), 40)
 musicStopButton = createButton(musicScroll, 158, "停止播放", Color3.fromRGB(130, 70, 70), 40)
 
+-- 音量滑桿
+musicVolumeLabel = Instance.new("TextLabel")
+musicVolumeLabel.Size = UDim2.new(1, -30, 0, 24); musicVolumeLabel.Position = UDim2.fromOffset(15, 212)
+musicVolumeLabel.BackgroundTransparency = 1; musicVolumeLabel.Text = "音量大小：100%"
+musicVolumeLabel.TextColor3 = Color3.fromRGB(220, 230, 245); musicVolumeLabel.TextSize = 15
+musicVolumeLabel.Font = Enum.Font.GothamBold; musicVolumeLabel.ZIndex = 1100; musicVolumeLabel.Parent = musicScroll
+
+musicVolumeTrack = Instance.new("Frame")
+musicVolumeTrack.Size = UDim2.new(1, -40, 0, 8); musicVolumeTrack.Position = UDim2.fromOffset(20, 245)
+musicVolumeTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
+musicVolumeTrack.ZIndex = 1100; musicVolumeTrack.Parent = musicScroll; addCorner(musicVolumeTrack, 5)
+
+musicVolumeKnob = Instance.new("TextButton")
+musicVolumeKnob.Size = UDim2.fromOffset(24, 24); musicVolumeKnob.Position = UDim2.new(musicVolume, -12, 0.5, -12)
+musicVolumeKnob.BackgroundColor3 = Color3.fromRGB(200, 220, 255); musicVolumeKnob.Text = ""
+musicVolumeKnob.ZIndex = 1200; musicVolumeKnob.Parent = musicVolumeTrack; addCorner(musicVolumeKnob, 20); addStroke(musicVolumeKnob, 2)
+
 -- 存檔區
 local saveTitle = Instance.new("TextLabel")
-saveTitle.Size = UDim2.new(1, -30, 0, 22); saveTitle.Position = UDim2.fromOffset(15, 205)
+saveTitle.Size = UDim2.new(1, -30, 0, 22); saveTitle.Position = UDim2.fromOffset(15, 285)
 saveTitle.BackgroundTransparency = 1; saveTitle.Text = "── 音樂存檔 ──"
 saveTitle.TextColor3 = Color3.fromRGB(200, 210, 230); saveTitle.TextSize = 13
 saveTitle.Font = Enum.Font.GothamBold; saveTitle.ZIndex = 1100; saveTitle.Parent = musicScroll
 
 musicSaveNameBox = Instance.new("TextBox")
-musicSaveNameBox.Size = UDim2.new(1, -30, 0, 38); musicSaveNameBox.Position = UDim2.fromOffset(15, 230)
+musicSaveNameBox.Size = UDim2.new(1, -30, 0, 38); musicSaveNameBox.Position = UDim2.fromOffset(15, 310)
 musicSaveNameBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
 musicSaveNameBox.TextColor3 = Color3.fromRGB(240, 240, 240); musicSaveNameBox.TextSize = 15
 musicSaveNameBox.Font = Enum.Font.Gotham; musicSaveNameBox.PlaceholderText = "輸入存檔名稱"
@@ -659,19 +679,19 @@ musicSaveNameBox.Text = ""; musicSaveNameBox.ZIndex = 1100; musicSaveNameBox.Par
 musicSaveNameBox.ClearTextOnFocus = false
 addCorner(musicSaveNameBox, 10); addStroke(musicSaveNameBox, 1.5)
 
-musicSaveButton = createButton(musicScroll, 275, "存檔音樂", Color3.fromRGB(70, 100, 140), 38)
-musicLoadButton = createButton(musicScroll, 318, "載入上次所有存檔", Color3.fromRGB(100, 75, 130), 38)
+musicSaveButton = createButton(musicScroll, 355, "存檔音樂", Color3.fromRGB(70, 100, 140), 38)
+musicLoadButton = createButton(musicScroll, 398, "載入上次所有存檔", Color3.fromRGB(100, 75, 130), 38)
 
--- 存檔列表區（動態生成按鈕）
+-- 存檔列表區
 musicSaveListFrame = Instance.new("Frame")
 musicSaveListFrame.Name = "SaveList"
 musicSaveListFrame.Size = UDim2.new(1, -30, 0, 200)
-musicSaveListFrame.Position = UDim2.fromOffset(15, 365)
+musicSaveListFrame.Position = UDim2.fromOffset(15, 445)
 musicSaveListFrame.BackgroundTransparency = 1
 musicSaveListFrame.ZIndex = 1100
 musicSaveListFrame.Parent = musicScroll
 
-local musicDone = createButton(musicScroll, 480, "完成", Color3.fromRGB(92, 65, 76), 38)
+local musicDone = createButton(musicScroll, 560, "完成", Color3.fromRGB(92, 65, 76), 38)
 
 --==================================================
 -- 彩色旋轉十字準心
@@ -1093,7 +1113,7 @@ local function startSnow()
 end
 
 --==================================================
--- 音樂播放器（含存檔系統）
+-- 音樂播放器（含音量 + 存檔系統）
 --==================================================
 local function playMusicById(id)
     if not id or id == "" then showToast("請輸入音樂 ID", "小翔製作"); return end
@@ -1104,7 +1124,7 @@ local function playMusicById(id)
         musicSound.Name = PREFIX .. "Music"
         musicSound.SoundId = "rbxassetid://" .. id
         musicSound.Looped = true
-        musicSound.Volume = 1
+        musicSound.Volume = musicVolume
         musicSound.Parent = SoundService
         musicSound:Play()
     end)
@@ -1131,7 +1151,7 @@ end
 local function refreshMusicSaveList()
     if not musicSaveListFrame then return end
     for _, child in ipairs(musicSaveListFrame:GetChildren()) do
-        if child:IsA("TextButton") then child:Destroy() end
+        if child:IsA("TextButton") or child:IsA("TextLabel") then child:Destroy() end
     end
     musicSaveButtons = {}
 
@@ -1446,6 +1466,35 @@ snowKnob.InputBegan:Connect(function(input)
 end)
 
 --==================================================
+-- 音量滑桿
+--==================================================
+local function updateMusicVolume(input)
+    local width = math.max(musicVolumeTrack.AbsoluteSize.X, 1)
+    local x = input.Position.X - musicVolumeTrack.AbsolutePosition.X
+    local ratio = math.clamp(x / width, 0, 1)
+    musicVolume = ratio
+
+    musicVolumeKnob.Position = UDim2.new(ratio, -12, 0.5, -12)
+    musicVolumeLabel.Text = string.format("音量大小：%d%%", math.floor(ratio * 100))
+
+    if musicSound then
+        pcall(function() musicSound.Volume = musicVolume end)
+    end
+end
+
+musicVolumeTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        musicVolumeDragging = true; updateMusicVolume(input)
+    end
+end)
+
+musicVolumeKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        musicVolumeDragging = true
+    end
+end)
+
+--==================================================
 -- 懸浮球拖曳與點擊
 --==================================================
 orb.Activated:Connect(function()
@@ -1467,6 +1516,7 @@ UIS.InputChanged:Connect(function(input)
     if rainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateRain(input) end
     if snowDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateSnow(input) end
     if crosshairScaleDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateScale(input) end
+    if musicVolumeDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateMusicVolume(input) end
     if orbDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
         local delta = input.Position - dragStart
         if delta.Magnitude > 8 then orbMoved = true end
@@ -1476,7 +1526,7 @@ end)
 
 UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        rainDragging = false; snowDragging = false; crosshairScaleDragging = false; orbDragging = false
+        rainDragging = false; snowDragging = false; crosshairScaleDragging = false; musicVolumeDragging = false; orbDragging = false
     end
 end)
 
@@ -1495,15 +1545,6 @@ UIS.InputBegan:Connect(function(input, processed)
 end)
 
 --==================================================
--- 初始化：載入上次存檔
---==================================================
-task.spawn(function()
-    task.wait(3.5) -- 等待 UI 建立完成
-    loadMusicData()
-    refreshMusicSaveList()
-end)
-
---==================================================
 -- 清理
 --==================================================
 script.Destroying:Connect(function()
@@ -1512,4 +1553,4 @@ script.Destroying:Connect(function()
     if gui then gui:Destroy() end
 end)
 
-print("湊企鵝mod：完整整合版已載入（下雪 + 音樂存檔系統）")
+print("湊企鵝mod：完整整合版已載入（手動載入存檔 + 音量滑桿）")
