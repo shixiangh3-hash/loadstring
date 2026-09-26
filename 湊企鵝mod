@@ -1,4 +1,41 @@
 --====================================================
+-- 音效設定
+--====================================================
+local SoundService = game:GetService("SoundService")
+local STARTUP_SOUND = "rbxassetid://119974879573475"
+local RAIN_SOUND = "rbxassetid://237985445"
+
+local function playSound(id, vol, looped, speed)
+    local s = nil
+    pcall(function()
+        s = Instance.new("Sound")
+        s.SoundId = id
+        s.Volume = vol or 1
+        s.Looped = looped or false
+        s.PlaybackSpeed = speed or 1
+        s.Parent = SoundService
+        s:Play()
+    end)
+    if s and not looped then
+        task.delay(10, function()
+            pcall(function() s:Destroy() end)
+        end)
+    end
+    return s
+end
+
+local rainSoundObj = nil
+local function startRainSound()
+    if rainSoundObj then return end
+    rainSoundObj = playSound(RAIN_SOUND, 2, true)
+end
+local function stopRainSound()
+    if rainSoundObj then
+        pcall(function() rainSoundObj:Stop(); rainSoundObj:Destroy() end)
+        rainSoundObj = nil
+    end
+end
+--====================================================
 -- 湊企鵝mod｜低血量警示 + 閃電打雷
 --====================================================
 
@@ -1404,4 +1441,19 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
+-- 開場音效（進場動畫結束後播放）
+task.delay(3.7, function()
+    playSound(STARTUP_SOUND, 3, false)
+end)
+
+-- 下雨時播放雨聲
+rainButton.Activated:Connect(function()
+    startRainSound()
+end)
+sunnyButton.Activated:Connect(function()
+    stopRainSound()
+end)
+snowButton.Activated:Connect(function()
+    stopRainSound()
+end)
 print("湊企鵝mod：低血量警示 + 閃電打雷版已載入")
