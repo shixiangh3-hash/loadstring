@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜完整整合版（手動載入存檔 + 音量滑桿）
+-- 湊企鵝mod｜完整整合版（手動載入存檔 + 音量滑桿）- 修正版
 --====================================================
 
 local Players = game:GetService("Players")
@@ -20,7 +20,6 @@ local BLACK_TEXTURE_URL = "https://pastebin.com/raw/xWZRF6Py"
 local STRETCH_URL = "https://rawscripts.net/raw/Universal-Script-Stretched-Resolution-4:3-rest-aspect-ratio-226525"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
--- 存檔檔案路徑
 local SAVE_FILE = "PenguinMod_MusicSaves.json"
 
 --==================================================
@@ -56,19 +55,16 @@ local techCrosshairConnection, techCrosshairObjects = nil, {}
 local blackDiamondEnabled, blackDiamondGui = false, nil
 local blackDiamondConnection, blackDiamondObjects = nil, {}
 
--- 準心大小
 local crosshairScale = 1.0
 local crosshairScaleDragging = false
 local rotationScaleBase = 75
 local techScaleBase = 90
 local bdScaleBase = 80
 
--- FPS 顯示器
 local fpsCounterEnabled = false
 local fpsGui, fpsLabel, fpsConnection = nil, nil, nil
 local fpsFrameCount, fpsTimeElapsed, fpsCurrent = 0, 0, 0
 
--- 音樂
 local musicSound = nil
 local musicPlaying = false
 local musicVolume = 1.0
@@ -510,7 +506,7 @@ end
 --==================================================
 -- 主介面
 --==================================================
-main = createMenu(320, 380, 500)
+main = createMenu(320, 380, 450)
 local mainScroll = getScroll(main)
 createTitle(mainScroll, "湊企鵝mod")
 
@@ -585,9 +581,7 @@ local snowLabel = Instance.new("TextLabel")
 snowLabel.Size = UDim2.new(1, -30, 0, 24); snowLabel.Position = UDim2.fromOffset(15, 240)
 snowLabel.BackgroundTransparency = 1; snowLabel.Text = "雪量：中"
 snowLabel.TextColor3 = Color3.fromRGB(220, 235, 250); snowLabel.TextSize = 15
-snowLabel.Font = Enum.Font.GothamBold; snowLabel.ZIndex = 1100; snowLabel.Parent = weatherScroll
-
-local snowTrack = Instance.new("Frame")
+snowLabel.Font = Enum.Font.GothamBold; snowLabel.ZIndex = 1100; snowLabel.Parent = weatherScrolllocal snowTrack = Instance.new("Frame")
 snowTrack.Size = UDim2.new(1, -40, 0, 8); snowTrack.Position = UDim2.fromOffset(20, 273)
 snowTrack.BackgroundColor3 = Color3.fromRGB(120, 140, 170)
 snowTrack.ZIndex = 1100; snowTrack.Parent = weatherScroll; addCorner(snowTrack, 5)
@@ -628,9 +622,9 @@ scaleKnob.ZIndex = 1200; scaleKnob.Parent = scaleTrack; addCorner(scaleKnob, 20)
 local crosshairDone = createButton(crosshairScroll, 285, "完成", Color3.fromRGB(92, 65, 76), 38)
 
 --==================================================
--- 音樂頁面（新增音量滑桿）
+-- 音樂頁面（修正高度）
 --==================================================
-musicMenu = createMenu(320, 420, 600)
+musicMenu = createMenu(320, 380, 650)
 local musicScroll = getScroll(musicMenu)
 createTitle(musicScroll, "音樂播放器")
 
@@ -1113,7 +1107,7 @@ local function startSnow()
 end
 
 --==================================================
--- 音樂播放器（含音量 + 存檔系統）
+-- 音樂播放器
 --==================================================
 local function playMusicById(id)
     if not id or id == "" then showToast("請輸入音樂 ID", "小翔製作"); return end
