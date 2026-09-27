@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜低血量警示 + 閃電打雷（音效調整）
+-- 湊企鵝mod｜低血量警示 + 閃電打雷 + 開場音效
 --====================================================
 
 local Players = game:GetService("Players")
@@ -19,6 +19,7 @@ local STRETCH_URL = "https://rawscripts.net/raw/Universal-Script-Stretched-Resol
 local SAVE_FILE = "PenguinMod_MusicSaves.json"
 local CLICK_SOUND = "rbxassetid://6895079853"
 local THUNDER_SOUND = "rbxassetid://131300621"
+local STARTUP_SOUND = "rbxassetid://119974879573475"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
 for _, obj in ipairs(PlayerGui:GetChildren()) do
@@ -34,7 +35,6 @@ gui.IgnoreGuiInset = true
 gui.DisplayOrder = 999999
 gui.Parent = PlayerGui
 
--- 按鈕音效（音量更大）
 local function playClick()
     pcall(function()
         local s = Instance.new("Sound")
@@ -44,6 +44,17 @@ local function playClick()
         s.Parent = SoundService
         s:Play()
         task.delay(0.5, function() s:Destroy() end)
+    end)
+end
+
+local function playStartupSound()
+    pcall(function()
+        local s = Instance.new("Sound")
+        s.SoundId = STARTUP_SOUND
+        s.Volume = 3
+        s.Parent = SoundService
+        s:Play()
+        task.delay(10, function() s:Destroy() end)
     end)
 end
 
@@ -115,6 +126,7 @@ task.delay(3, function()
     TweenService:Create(loading, TweenInfo.new(0.65), {BackgroundTransparency = 1}):Play()
     task.wait(0.7)
     if loading then loading:Destroy() end
+    playStartupSound()
 end)
 
 local orb = Instance.new("ImageButton")
@@ -1404,4 +1416,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：低血量警示 + 閃電打雷版已載入（音效已更新）")
+print("湊企鵝mod：低血量警示 + 閃電打雷 + 開場音效版已載入")
