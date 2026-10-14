@@ -22,6 +22,8 @@ local THUNDER_SOUND = "rbxassetid://131300621"
 local STARTUP_SOUND = "rbxassetid://119974879573475"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
+local fogAmount = 0.5  -- 全局雾量 0~1
+
 for _, obj in ipairs(PlayerGui:GetChildren()) do
     if obj:IsA("ScreenGui") and (obj.Name:find("PenguinMod") or obj.Name:find("PM_")) then
         pcall(function() obj:Destroy() end)
@@ -114,6 +116,19 @@ loadingTitle.TextSize = 42
 loadingTitle.Font = Enum.Font.GothamBlack
 loadingTitle.ZIndex = 3010
 loadingTitle.Parent = loading
+
+-- 新增：开场动画副标题
+local loadingSubtitle = Instance.new("TextLabel")
+loadingSubtitle.Size = UDim2.new(1, -40, 0, 30)
+loadingSubtitle.Position = UDim2.new(0, 20, 0.5, 40)
+loadingSubtitle.BackgroundTransparency = 1
+loadingSubtitle.Text = "敵克製作 v2版本"
+loadingSubtitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+loadingSubtitle.TextSize = 20
+loadingSubtitle.Font = Enum.Font.Gotham
+loadingSubtitle.ZIndex = 3010
+loadingSubtitle.Parent = loading
+
 local loadRotation = 0
 local loadConnection = RunService.RenderStepped:Connect(function(dt)
     if not loading.Parent then return end
@@ -214,7 +229,7 @@ local function showToast(text)
     end)
 end
 
-local main = createMenu(320, 380, 500)
+local main = createMenu(320, 380, 520)
 local mainScroll = main:FindFirstChild("Scroll")
 createTitle(mainScroll, "湊企鵝mod")
 local statusLabel = Instance.new("TextLabel")
@@ -232,8 +247,9 @@ local timeButton = createBtn(mainScroll, 135, "目前時間：夕陽", Color3.fr
 local weatherButton = createBtn(mainScroll, 185, "目前天氣：晴天", Color3.fromRGB(65, 115, 105))
 local crosshairPageButton = createBtn(mainScroll, 235, "自訂準心", Color3.fromRGB(90, 90, 125))
 local settingPageButton = createBtn(mainScroll, 285, "畫面設定", Color3.fromRGB(100, 75, 135))
-local musicPageButton = createBtn(mainScroll, 335, "音樂", Color3.fromRGB(80, 100, 150))
-local restoreButton = createBtn(mainScroll, 385, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
+local skyPageButton = createBtn(mainScroll, 335, "天空", Color3.fromRGB(70, 100, 140))
+local musicPageButton = createBtn(mainScroll, 385, "音樂", Color3.fromRGB(80, 100, 150))
+local restoreButton = createBtn(mainScroll, 435, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 
 local orbDragging = false
 local orbMoved = false
@@ -263,7 +279,9 @@ UIS.InputChanged:Connect(function(input)
     end
 end)
 UIS.InputEnded:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then orbDragging = false end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        orbDragging = false
+    end
 end)
 
 local savedLighting = {}
@@ -359,12 +377,12 @@ local function applyFog()
     Lighting.OutdoorAmbient = Color3.fromRGB(140, 145, 155)
     Lighting.FogColor = Color3.fromRGB(210, 215, 225)
     Lighting.FogStart = 0
-    Lighting.FogEnd = 150
+    Lighting.FogEnd = 5000 - fogAmount * 4900
     local at = Instance.new("Atmosphere")
     at.Name = PREFIX .. "FogAtmosphere"
     at.Color = Color3.fromRGB(200, 205, 215)
-    at.Density = 0.35
-    at.Haze = 1.5
+    at.Density = fogAmount * 0.8
+    at.Haze = fogAmount * 2
     at.Glare = 0
     at.Parent = Lighting
 end
@@ -401,15 +419,84 @@ restoreButton.Activated:Connect(function()
     toggleButton.Text = "開啟光影"
 end)
 
-local timeMenu = createMenu(320, 380, 400)
+-- ==================== 時間頁面（含霧量滑塊） ====================
+local timeMenu = createMenu(320, 380, 420)
 local timeScroll = timeMenu:FindFirstChild("Scroll")
 createTitle(timeScroll, "當前時間")
 local presetButton = createBtn(timeScroll, 52, "預設光影", Color3.fromRGB(58, 125, 145), 38)
 local dayButton = createBtn(timeScroll, 96, "白天", Color3.fromRGB(80, 120, 145), 38)
 local nightButton = createBtn(timeScroll, 140, "夜間／星空", Color3.fromRGB(45, 55, 110), 38)
 local fogButton = createBtn(timeScroll, 184, "起霧", Color3.fromRGB(100, 105, 120), 38)
-local sunsetButton = createBtn(timeScroll, 228, "夕陽", Color3.fromRGB(155, 92, 58), 38)
-local timeDone = createBtn(timeScroll, 272, "完成", Color3.fromRGB(92, 65, 76), 38)
+
+-- 霧量滑塊
+local fogAmountLabel = Instance.new("TextLabel")
+fogAmountLabel.Size = UDim2.new(1, -30, 0, 22)
+fogAmountLabel.Position = UDim2.fromOffset(15, 228)
+fogAmountLabel.BackgroundTransparency = 1
+fogAmountLabel.Text = "霧量：中"
+fogAmountLabel.TextColor3 = Color3.fromRGB(200, 210, 230)
+fogAmountLabel.TextSize = 14
+fogAmountLabel.Font = Enum.Font.GothamBold
+fogAmountLabel.ZIndex = 1100
+fogAmountLabel.Parent = timeScroll
+
+local fogTrack = Instance.new("Frame")
+fogTrack.Size = UDim2.new(1, -40, 0, 8)
+fogTrack.Position = UDim2.fromOffset(20, 258)
+fogTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
+fogTrack.ZIndex = 1100
+fogTrack.Parent = timeScroll
+local ftc = Instance.new("UICorner"); ftc.CornerRadius = UDim.new(0, 5); ftc.Parent = fogTrack
+
+local fogKnob = Instance.new("TextButton")
+fogKnob.Size = UDim2.fromOffset(24, 24)
+fogKnob.Position = UDim2.new(0.5, -12, 0.5, -12)
+fogKnob.BackgroundColor3 = Color3.fromRGB(200, 220, 255)
+fogKnob.Text = ""
+fogKnob.ZIndex = 1200
+fogKnob.Parent = fogTrack
+local fkc = Instance.new("UICorner"); fkc.CornerRadius = UDim.new(0, 20); fkc.Parent = fogKnob
+
+local fogDragging = false
+local function updateFogAmount(input)
+    local width = math.max(fogTrack.AbsoluteSize.X, 1)
+    local x = input.Position.X - fogTrack.AbsolutePosition.X
+    fogAmount = math.clamp(x / width, 0, 1)
+    fogKnob.Position = UDim2.new(fogAmount, -12, 0.5, -12)
+    if fogAmount < 0.34 then fogAmountLabel.Text = "霧量：小"
+    elseif fogAmount < 0.67 then fogAmountLabel.Text = "霧量：中"
+    else fogAmountLabel.Text = "霧量：大" end
+    local atm = Lighting:FindFirstChild(PREFIX .. "FogAtmosphere")
+    if atm then
+        atm.Density = fogAmount * 0.8
+        atm.Haze = fogAmount * 2
+    end
+    Lighting.FogEnd = 5000 - fogAmount * 4900
+end
+
+fogTrack.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        fogDragging = true; updateFogAmount(input)
+    end
+end)
+fogKnob.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        fogDragging = true
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if fogDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        updateFogAmount(input)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        fogDragging = false
+    end
+end)
+
+local sunsetButton = createBtn(timeScroll, 296, "夕陽", Color3.fromRGB(155, 92, 58), 38)
+local timeDone = createBtn(timeScroll, 340, "完成", Color3.fromRGB(92, 65, 76), 38)
 timeButton.Activated:Connect(function() closeAllMenus(); timeMenu.Visible = true end)
 timeDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 presetButton.Activated:Connect(function() selectMode("預設", "預設光影") end)
@@ -418,6 +505,110 @@ nightButton.Activated:Connect(function() selectMode("夜間", "夜間") end)
 fogButton.Activated:Connect(function() selectMode("起霧", "起霧") end)
 sunsetButton.Activated:Connect(function() selectMode("夕陽", "夕陽") end)
 
+-- ==================== 天空頁面 ====================
+local skyMenu = createMenu(320, 380, 480)
+local skyScroll = skyMenu:FindFirstChild("Scroll")
+createTitle(skyScroll, "天空")
+
+local skyPresets = {
+    { name = "粉红日落", sameId = "rbxassetid://151165214" },
+    { name = "Skeleton 风格", sameId = "rbxassetid://169585459" },
+    {
+        name = "末日红天",
+        faces = {
+            Bk = "rbxassetid://1012890", Dn = "rbxassetid://1012891",
+            Ft = "rbxassetid://1012887", Lf = "rbxassetid://1012889",
+            Rt = "rbxassetid://1012888", Up = "rbxassetid://1014449"
+        }
+    },
+    { name = "c00lkidd", sameId = "rbxassetid://8408806737" },
+    {
+        name = "夜空",
+        faces = {
+            Bk = "rbxassetid://2503254921", Dn = "rbxassetid://2503255146",
+            Ft = "rbxassetid://2503255274", Lf = "rbxassetid://2503255403",
+            Rt = "rbxassetid://2503255557", Up = "rbxassetid://2503255747"
+        },
+        isDark = true
+    },
+    { name = "Nyan Cat", sameId = "rbxassetid://50767914" },
+    { name = "Spongebob", sameId = "rbxassetid://92663158118274" },
+    { name = "Matrix", sameId = "rbxassetid://191546360" }
+}
+
+local skySavedAtmosphere = nil
+local skySavedTimeOfDay = Lighting.TimeOfDay
+local skySavedOutdoorAmbient = Lighting.OutdoorAmbient
+
+local function clearMySkies()
+    for _, obj in ipairs(Lighting:GetChildren()) do
+        if obj:IsA("Sky") and obj.Name:sub(1, 9) == "SkyTest_" then
+            obj:Destroy()
+        end
+    end
+end
+
+local function hideSkyAtmosphere()
+    local atm = Lighting:FindFirstChildOfClass("Atmosphere")
+    if atm and not skySavedAtmosphere then
+        skySavedAtmosphere = atm
+        atm.Parent = nil
+    end
+end
+
+local function applySkyPreset(preset)
+    clearMySkies()
+    local sky = Lighting:FindFirstChildOfClass("Sky")
+    if not sky then
+        sky = Instance.new("Sky")
+        sky.Parent = Lighting
+    end
+    sky.Name = "SkyTest_" .. tostring(math.random(10000, 99999))
+
+    if preset.sameId then
+        sky.SkyboxBk = preset.sameId
+        sky.SkyboxDn = preset.sameId
+        sky.SkyboxFt = preset.sameId
+        sky.SkyboxLf = preset.sameId
+        sky.SkyboxRt = preset.sameId
+        sky.SkyboxUp = preset.sameId
+    elseif preset.faces then
+        sky.SkyboxBk = preset.faces.Bk
+        sky.SkyboxDn = preset.faces.Dn
+        sky.SkyboxFt = preset.faces.Ft
+        sky.SkyboxLf = preset.faces.Lf
+        sky.SkyboxRt = preset.faces.Rt
+        sky.SkyboxUp = preset.faces.Up
+    end
+
+    if preset.isDark then
+        hideSkyAtmosphere()
+        Lighting.TimeOfDay = "00:00:00"
+        Lighting.OutdoorAmbient = Color3.fromRGB(35, 25, 45)
+        Lighting.Brightness = 1
+    else
+        if skySavedAtmosphere then
+            skySavedAtmosphere.Parent = Lighting
+            skySavedAtmosphere = nil
+        end
+        Lighting.TimeOfDay = skySavedTimeOfDay
+        Lighting.OutdoorAmbient = skySavedOutdoorAmbient
+    end
+
+    showToast("天空已切換：" .. preset.name)
+end
+
+local skyY = 52
+for _, preset in ipairs(skyPresets) do
+    local btn = createBtn(skyScroll, skyY, preset.name, Color3.fromRGB(60, 80, 110), 38)
+    btn.Activated:Connect(function() applySkyPreset(preset) end)
+    skyY = skyY + 44
+end
+local skyDone = createBtn(skyScroll, skyY, "完成", Color3.fromRGB(92, 65, 76), 38)
+skyDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
+skyPageButton.Activated:Connect(function() closeAllMenus(); skyMenu.Visible = true end)
+
+-- ==================== 天氣頁面（原本不變） ====================
 local weatherMenu = createMenu(320, 400, 440)
 local weatherScroll = weatherMenu:FindFirstChild("Scroll")
 createTitle(weatherScroll, "當前天氣")
@@ -694,6 +885,7 @@ UIS.InputEnded:Connect(function(input)
     end
 end)
 
+-- ==================== 準心頁面（原本不變） ====================
 local crosshairMenu = createMenu(320, 360, 400)
 local crosshairScroll = crosshairMenu:FindFirstChild("Scroll")
 createTitle(crosshairScroll, "自訂準心")
@@ -1002,6 +1194,7 @@ UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then scaleDragging = false end
 end)
 
+-- ==================== 畫面設定頁面（原本不變） ====================
 local settingMenu = createMenu(320, 360, 420)
 local settingScroll = settingMenu:FindFirstChild("Scroll")
 createTitle(settingScroll, "畫面設定")
@@ -1187,6 +1380,7 @@ fpsCounterButton.Activated:Connect(function()
     end
 end)
 
+-- ==================== 音樂頁面（原本不變） ====================
 local musicMenu = createMenu(320, 380, 650)
 local musicScroll = musicMenu:FindFirstChild("Scroll")
 createTitle(musicScroll, "音樂播放器")
@@ -1406,7 +1600,7 @@ UIS.InputEnded:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then mvDragging = false end
 end)
 
-allMenus = { main, timeMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
+allMenus = { main, timeMenu, skyMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
 UIS.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.I then
@@ -1416,4 +1610,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：低血量警示 + 閃電打雷 + 開場音效版已載入")
+print("湊企鵝mod：敵克製作 v2版本已載入（新增天空頁面 + 霧量滑塊）")
