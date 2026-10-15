@@ -798,14 +798,16 @@ do
 
     local function fetchGameName()
         if cachedGameName then return cachedGameName end
+
         local ok, info = pcall(function()
             return MarketplaceService:GetProductInfo(game.PlaceId, Enum.InfoType.Asset)
         end)
-        if ok and info and info.Name and info.Name ~= "" then
+        if ok and info and info.Name and info.Name ~= "" and info.Name ~= "Ugc" then
             cachedGameName = info.Name
-        else
-            cachedGameName = game.Name
+            return cachedGameName
         end
+
+        cachedGameName = game.Name
         return cachedGameName
     end
 
@@ -1909,4 +1911,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：敵克製作 v2.1版本已載入（天空守護 + 效能監控）")
+print("湊企鵝mod：敵克製作 v2.1版本已載入（天空守護 + 效能監控 + 遊戲名稱修正）")
