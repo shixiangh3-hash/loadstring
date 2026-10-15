@@ -777,17 +777,52 @@ do
     local function getPing()
         local p = 0
         pcall(function()
-            p = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+            local statsItem = Stats.Network.ServerStatsItem["Data Ping"]
+            if statsItem then
+                p = math.floor(statsItem:GetValue())
+            end
         end)
+        if p == 0 then
+            pcall(function()
+                local clientPing = Stats.Network.ClientStatsItem["Data Ping"]
+                if clientPing then
+                    p = math.floor(clientPing:GetValue())
+                end
+            end)
+        end
         return p
     end
 
-    local function getPartCount()
-        local count = 0
-        pcall(function()
-            count = #workspace:GetDescendants()
+    local MarketplaceService = game:GetService("MarketplaceService")
+    local cachedGameName = nil
+
+    local function fetchGameName()
+        if cachedGameName then return cachedGameName end
+        local ok, info = pcall(function()
+            return MarketplaceService:GetProductInfo(game.PlaceId, Enum.InfoType.Asset)
         end)
-        return count
+        if ok and info and info.Name and info.Name ~= "" then
+            cachedGameName = info.Name
+        else
+            cachedGameName = game.Name
+        end
+        return cachedGameName
+    end
+
+    local cachedPartCount = 0
+    local lastPartCountUpdate = 0
+
+    local function getPartCount()
+        local now = tick()
+        if now - lastPartCountUpdate >= 1 then
+            local count = 0
+            pcall(function()
+                count = #workspace:GetDescendants()
+            end)
+            cachedPartCount = count
+            lastPartCountUpdate = now
+        end
+        return cachedPartCount
     end
 
     local function updateAdvice()
@@ -815,6 +850,7 @@ do
     local function startPerfUpdate()
         if perfConn then perfConn:Disconnect() end
         fpsFrames, fpsTime = 0, 0
+        task.spawn(fetchGameName)
         perfConn = RunService.RenderStepped:Connect(function(dt)
             fpsFrames = fpsFrames + 1
             fpsTime = fpsTime + dt
@@ -835,7 +871,7 @@ do
 
                 linePlayers.Text = "> 伺服器人數: " .. #Players:GetPlayers()
                 lineUser.Text = "> 使用者名稱: " .. Player.Name
-                lineGame.Text = "> 遊戲名稱: " .. game.Name
+                lineGame.Text = "> 遊戲名稱: " .. fetchGameName()
 
                 updateAdvice()
             end
