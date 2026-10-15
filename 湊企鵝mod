@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜敵克製作 v2版本
+-- 湊企鵝mod｜敵克製作 v2.1版本
 --====================================================
 
 local Players = game:GetService("Players")
@@ -10,6 +10,7 @@ local Lighting = game:GetService("Lighting")
 local RunService = game:GetService("RunService")
 local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
+local Stats = game:GetService("Stats")
 
 local PREFIX = "PM_" .. tostring(math.random(100000, 999999)) .. "_"
 local ORB_IMAGE = "rbxassetid://125797550774730"
@@ -233,9 +234,9 @@ end
 
 -- ==================== 主選單 ====================
 local main, mainScroll, statusLabel, toggleButton, timeButton, weatherButton
-local crosshairPageButton, settingPageButton, skyPageButton, musicPageButton, restoreButton
+local crosshairPageButton, settingPageButton, skyPageButton, perfPageButton, musicPageButton, restoreButton
 do
-    main = createMenu(320, 380, 520)
+    main = createMenu(320, 380, 570)
     mainScroll = main:FindFirstChild("Scroll")
     createTitle(mainScroll, "湊企鵝mod")
     statusLabel = Instance.new("TextLabel")
@@ -254,8 +255,9 @@ do
     crosshairPageButton = createBtn(mainScroll, 235, "自訂準心", Color3.fromRGB(90, 90, 125))
     settingPageButton = createBtn(mainScroll, 285, "畫面設定", Color3.fromRGB(100, 75, 135))
     skyPageButton = createBtn(mainScroll, 335, "天空", Color3.fromRGB(70, 100, 140))
-    musicPageButton = createBtn(mainScroll, 385, "音樂", Color3.fromRGB(80, 100, 150))
-    restoreButton = createBtn(mainScroll, 435, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
+    perfPageButton = createBtn(mainScroll, 385, "效能監控", Color3.fromRGB(40, 90, 60))
+    musicPageButton = createBtn(mainScroll, 435, "音樂", Color3.fromRGB(80, 100, 150))
+    restoreButton = createBtn(mainScroll, 485, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 end
 
 -- ==================== 全域狀態 ====================
@@ -435,7 +437,7 @@ do
     end)
 end
 
--- ==================== 時間頁面（含霧量滑塊） ====================
+-- ==================== 時間頁面 ====================
 local timeMenu, presetButton, dayButton, nightButton, fogButton, sunsetButton, timeDone
 do
     timeMenu = createMenu(320, 380, 420)
@@ -523,10 +525,10 @@ do
     sunsetButton.Activated:Connect(function() selectMode("夕陽", "夕陽") end)
 end
 
--- ==================== 天空頁面 ====================
+-- ==================== 天空頁面（含守護機制） ====================
 local skyMenu
 do
-    skyMenu = createMenu(320, 380, 480)
+    skyMenu = createMenu(320, 380, 560)
     local skyScroll = skyMenu:FindFirstChild("Scroll")
     createTitle(skyScroll, "天空")
 
@@ -556,17 +558,14 @@ do
         { name = "Matrix", sameId = "rbxassetid://191546360" }
     }
 
+    local SKY_NAME = "SkyTest_Current"
     local skySavedAtmosphere = nil
     local skySavedTimeOfDay = Lighting.TimeOfDay
     local skySavedOutdoorAmbient = Lighting.OutdoorAmbient
-
-    local function clearMySkies()
-        for _, obj in ipairs(Lighting:GetChildren()) do
-            if obj:IsA("Sky") and obj.Name:sub(1, 9) == "SkyTest_" then
-                obj:Destroy()
-            end
-        end
-    end
+    local skySavedBrightness = Lighting.Brightness
+    local currentSkyPreset = nil
+    local skyGuardConnections = {}
+    local isReapplying = false
 
     local function hideSkyAtmosphere()
         local atm = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -576,14 +575,21 @@ do
         end
     end
 
-    local function applySkyPreset(preset)
-        clearMySkies()
-        local sky = Lighting:FindFirstChildOfClass("Sky")
-        if not sky then
+    local function doApplySky(preset)
+        isReapplying = true
+
+        for _, obj in ipairs(Lighting:GetChildren()) do
+            if obj:IsA("Sky") and obj.Name ~= SKY_NAME then
+                obj:Destroy()
+            end
+        end
+
+        local sky = Lighting:FindFirstChild(SKY_NAME)
+        if not sky or not sky:IsA("Sky") then
             sky = Instance.new("Sky")
+            sky.Name = SKY_NAME
             sky.Parent = Lighting
         end
-        sky.Name = "SkyTest_" .. tostring(math.random(10000, 99999))
 
         if preset.sameId then
             sky.SkyboxBk = preset.sameId
@@ -613,9 +619,79 @@ do
             end
             Lighting.TimeOfDay = skySavedTimeOfDay
             Lighting.OutdoorAmbient = skySavedOutdoorAmbient
+            Lighting.Brightness = skySavedBrightness
         end
 
+        task.defer(function() isReapplying = false end)
+    end
+
+    local function disconnectGuard()
+        for _, conn in ipairs(skyGuardConnections) do
+            pcall(function() conn:Disconnect() end)
+        end
+        table.clear(skyGuardConnections)
+    end
+
+    local function startSkyGuard()
+        disconnectGuard()
+        table.insert(skyGuardConnections, Lighting.ChildAdded:Connect(function(child)
+            if isReapplying then return end
+            if not currentSkyPreset then return end
+            if child:IsA("Sky") and child.Name ~= SKY_NAME then
+                task.defer(function()
+                    if currentSkyPreset then doApplySky(currentSkyPreset) end
+                end)
+            end
+        end))
+        table.insert(skyGuardConnections, Lighting.ChildRemoved:Connect(function(child)
+            if isReapplying then return end
+            if not currentSkyPreset then return end
+            if child:IsA("Sky") and child.Name == SKY_NAME then
+                task.defer(function()
+                    if currentSkyPreset then doApplySky(currentSkyPreset) end
+                end)
+            end
+        end))
+        table.insert(skyGuardConnections, Lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
+            if isReapplying then return end
+            if not currentSkyPreset then return end
+            if currentSkyPreset.isDark then
+                if Lighting.ClockTime > 6 and Lighting.ClockTime < 18 then
+                    task.defer(function()
+                        if currentSkyPreset then doApplySky(currentSkyPreset) end
+                    end)
+                end
+            end
+        end))
+    end
+
+    local function applySkyPreset(preset)
+        currentSkyPreset = preset
+        doApplySky(preset)
+        startSkyGuard()
         showToast("天空已切換：" .. preset.name)
+    end
+
+    local function restoreOriginalSky()
+        currentSkyPreset = nil
+        disconnectGuard()
+
+        for _, obj in ipairs(Lighting:GetChildren()) do
+            if obj:IsA("Sky") and obj.Name == SKY_NAME then
+                obj:Destroy()
+            end
+        end
+
+        if skySavedAtmosphere then
+            skySavedAtmosphere.Parent = Lighting
+            skySavedAtmosphere = nil
+        end
+
+        Lighting.TimeOfDay = skySavedTimeOfDay
+        Lighting.OutdoorAmbient = skySavedOutdoorAmbient
+        Lighting.Brightness = skySavedBrightness
+
+        showToast("已恢復遊戲原本天空")
     end
 
     local skyY = 52
@@ -624,9 +700,163 @@ do
         btn.Activated:Connect(function() applySkyPreset(preset) end)
         skyY = skyY + 44
     end
+    local restoreSkyBtn = createBtn(skyScroll, skyY, "恢復原本遊戲天空", Color3.fromRGB(120, 70, 70), 38)
+    restoreSkyBtn.Activated:Connect(restoreOriginalSky)
+    skyY = skyY + 44
     local skyDone = createBtn(skyScroll, skyY, "完成", Color3.fromRGB(92, 65, 76), 38)
     skyDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
     skyPageButton.Activated:Connect(function() closeAllMenus(); skyMenu.Visible = true end)
+end
+
+-- ==================== 效能監控頁面 ====================
+local perfMenu
+do
+    perfMenu = createMenu(320, 340, 340)
+    local perfScroll = perfMenu:FindFirstChild("Scroll")
+
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -30, 0, 42)
+    title.Position = UDim2.fromOffset(15, 8)
+    title.BackgroundTransparency = 1
+    title.Text = "效能監控"
+    title.TextColor3 = Color3.fromRGB(0, 255, 100)
+    title.TextSize = 22
+    title.Font = Enum.Font.Code
+    title.ZIndex = 1100
+    title.Parent = perfScroll
+
+    local panel = Instance.new("Frame")
+    panel.Size = UDim2.new(1, -30, 0, 230)
+    panel.Position = UDim2.fromOffset(15, 55)
+    panel.BackgroundColor3 = Color3.fromRGB(5, 15, 5)
+    panel.BorderSizePixel = 0
+    panel.ZIndex = 1100
+    panel.Parent = perfScroll
+    local pc = Instance.new("UICorner"); pc.CornerRadius = UDim.new(0, 8); pc.Parent = panel
+    local panelStroke = Instance.new("UIStroke")
+    panelStroke.Color = Color3.fromRGB(0, 200, 80)
+    panelStroke.Thickness = 1.5
+    panelStroke.Transparency = 0.3
+    panelStroke.Parent = panel
+
+    local function makeLine(yPos, initial)
+        local l = Instance.new("TextLabel")
+        l.Size = UDim2.new(1, -20, 0, 24)
+        l.Position = UDim2.fromOffset(10, yPos)
+        l.BackgroundTransparency = 1
+        l.Text = initial
+        l.TextColor3 = Color3.fromRGB(0, 255, 100)
+        l.TextSize = 15
+        l.Font = Enum.Font.Code
+        l.TextXAlignment = Enum.TextXAlignment.Left
+        l.ZIndex = 1150
+        l.Parent = panel
+        return l
+    end
+
+    local lineFps = makeLine(10, "> FPS: --")
+    local linePing = makeLine(38, "> PING: --ms")
+    local lineAdvice = makeLine(66, "> 建議: --")
+    local lineHint = makeLine(92, ">   └ 要開增加FPS請去畫面設定")
+    local linePlayers = makeLine(120, "> 伺服器人數: --")
+    local lineUser = makeLine(148, "> 使用者名稱: --")
+    local lineGame = makeLine(176, "> 遊戲名稱: --")
+
+    lineHint.TextColor3 = Color3.fromRGB(0, 160, 70)
+    lineHint.TextSize = 12
+
+    local perfDone = createBtn(perfScroll, 295, "完成", Color3.fromRGB(40, 80, 55), 38)
+    perfDone.TextColor3 = Color3.fromRGB(180, 255, 200)
+    perfDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
+
+    local perfConn = nil
+    local fpsFrames, fpsTime = 0, 0
+    local currentFps = 0
+    local currentPing = 0
+
+    local function getPing()
+        local p = 0
+        pcall(function()
+            p = math.floor(Stats.Network.ServerStatsItem["Data Ping"]:GetValue())
+        end)
+        return p
+    end
+
+    local function getPartCount()
+        local count = 0
+        pcall(function()
+            count = #workspace:GetDescendants()
+        end)
+        return count
+    end
+
+    local function updateAdvice()
+        local score = 0
+        if currentFps < 30 then score = score + 2
+        elseif currentFps < 45 then score = score + 1 end
+        if currentPing > 200 then score = score + 2
+        elseif currentPing > 100 then score = score + 1 end
+        local playerCount = #Players:GetPlayers()
+        if playerCount > 20 then score = score + 1 end
+        if getPartCount() > 5000 then score = score + 1 end
+
+        if score <= 1 then
+            lineAdvice.Text = "> 建議: 不建議開"
+            lineAdvice.TextColor3 = Color3.fromRGB(0, 255, 100)
+        elseif score <= 3 then
+            lineAdvice.Text = "> 建議: 可以考慮開"
+            lineAdvice.TextColor3 = Color3.fromRGB(255, 220, 80)
+        else
+            lineAdvice.Text = "> 建議: 建議開啟"
+            lineAdvice.TextColor3 = Color3.fromRGB(255, 80, 80)
+        end
+    end
+
+    local function startPerfUpdate()
+        if perfConn then perfConn:Disconnect() end
+        fpsFrames, fpsTime = 0, 0
+        perfConn = RunService.RenderStepped:Connect(function(dt)
+            fpsFrames = fpsFrames + 1
+            fpsTime = fpsTime + dt
+            if fpsTime >= 0.5 then
+                currentFps = math.floor(fpsFrames / fpsTime + 0.5)
+                fpsFrames, fpsTime = 0, 0
+                currentPing = getPing()
+
+                lineFps.Text = "> FPS: " .. currentFps
+                if currentFps >= 50 then lineFps.TextColor3 = Color3.fromRGB(0, 255, 100)
+                elseif currentFps >= 30 then lineFps.TextColor3 = Color3.fromRGB(255, 220, 80)
+                else lineFps.TextColor3 = Color3.fromRGB(255, 80, 80) end
+
+                linePing.Text = "> PING: " .. currentPing .. "ms"
+                if currentPing <= 80 then linePing.TextColor3 = Color3.fromRGB(0, 255, 100)
+                elseif currentPing <= 150 then linePing.TextColor3 = Color3.fromRGB(255, 220, 80)
+                else linePing.TextColor3 = Color3.fromRGB(255, 80, 80) end
+
+                linePlayers.Text = "> 伺服器人數: " .. #Players:GetPlayers()
+                lineUser.Text = "> 使用者名稱: " .. Player.Name
+                lineGame.Text = "> 遊戲名稱: " .. game.Name
+
+                updateAdvice()
+            end
+        end)
+    end
+
+    local function stopPerfUpdate()
+        if perfConn then perfConn:Disconnect(); perfConn = nil end
+    end
+
+    perfPageButton.Activated:Connect(function()
+        closeAllMenus()
+        perfMenu.Visible = true
+        startPerfUpdate()
+    end)
+
+    perfMenu:GetPropertyChangedSignal("Visible"):Connect(function()
+        if not perfMenu.Visible then
+            stopPerfUpdate()
+        end
+    end)
 end
 
 -- ==================== 天氣頁面 ====================
@@ -1266,7 +1496,6 @@ do
             lowHpGui.IgnoreGuiInset = true
             lowHpGui.DisplayOrder = 999996
             lowHpGui.Parent = PlayerGui
-
             lowHpFrame = Instance.new("Frame")
             lowHpFrame.Size = UDim2.fromScale(1, 1)
             lowHpFrame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
@@ -1282,7 +1511,6 @@ do
             })
             grad.Rotation = 90
             grad.Parent = lowHpFrame
-
             lowHpConnection = RunService.RenderStepped:Connect(function()
                 local char = Player.Character
                 if not char then return end
@@ -1297,7 +1525,6 @@ do
                     if lowHpFrame then lowHpFrame.BackgroundTransparency = 1 end
                 end
             end)
-
             lowHpButton.Text = "低血量警示：已開啟"
             showToast("低血量警示已開啟")
         end
@@ -1636,7 +1863,7 @@ do
 end
 
 -- ==================== 收尾 ====================
-allMenus = { main, timeMenu, skyMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
+allMenus = { main, timeMenu, skyMenu, perfMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
 UIS.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.I then
@@ -1646,4 +1873,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：敵克製作 v2版本已載入（新增天空頁面 + 霧量滑塊）")
+print("湊企鵝mod：敵克製作 v2.1版本已載入（天空守護 + 效能監控）")
