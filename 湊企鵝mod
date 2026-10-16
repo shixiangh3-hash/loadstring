@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜敵克製作 v2.2版本
+-- 湊企鵝mod｜敵克製作 v2.3版本（新增存檔系統）
 --====================================================
 
 local Players = game:GetService("Players")
@@ -18,6 +18,7 @@ local MINECRAFT_URL = "https://pastebin.com/raw/Cb9ExUkB"
 local BLACK_TEXTURE_URL = "https://pastebin.com/raw/xWZRF6Py"
 local STRETCH_URL = "https://rawscripts.net/raw/Universal-Script-Stretched-Resolution-4:3-rest-aspect-ratio-226525"
 local SAVE_FILE = "PenguinMod_MusicSaves.json"
+local PRESET_FILE = "PenguinMod_Presets.json"
 local CLICK_SOUND = "rbxassetid://6895079853"
 local THUNDER_SOUND = "rbxassetid://131300621"
 local STARTUP_SOUND = "rbxassetid://119974879573475"
@@ -236,7 +237,7 @@ end
 local main, mainScroll, statusLabel, toggleButton, timeButton, weatherButton
 local crosshairPageButton, settingPageButton, skyPageButton, perfPageButton, musicPageButton, restoreButton
 do
-    main = createMenu(320, 380, 570)
+    main = createMenu(320, 380, 900)
     mainScroll = main:FindFirstChild("Scroll")
     createTitle(mainScroll, "湊企鵝mod")
     statusLabel = Instance.new("TextLabel")
@@ -264,6 +265,7 @@ end
 local fogAmount = 0.5
 local allMenus = {}
 local lightEnabled = false
+local currentLightMode = nil
 local savedLighting = {}
 local savedTerrain = {}
 for _, p in ipairs({"Technology","GlobalShadows","Brightness","ClockTime","ExposureCompensation","Ambient","OutdoorAmbient","ColorShift_Top","ColorShift_Bottom","EnvironmentDiffuseScale","EnvironmentSpecularScale","ShadowSoftness","FogColor","FogStart","FogEnd"}) do
@@ -374,6 +376,7 @@ local function applyFog()
 end
 local function selectMode(mode, name)
     lightEnabled = true
+    currentLightMode = mode
     if mode == "預設" then applyPreset()
     elseif mode == "白天" then applyDay()
     elseif mode == "夜間" then applyNight()
@@ -383,26 +386,23 @@ local function selectMode(mode, name)
     timeButton.Text = "目前時間：" .. name
     toggleButton.Text = "關閉光影"
 end
-
-toggleButton.Activated:Connect(function()
-    if lightEnabled then
-        clearOwned()
-        for p, v in pairs(savedLighting) do pcall(function() Lighting[p] = v end) end
-        if Terrain then for p, v in pairs(savedTerrain) do pcall(function() Terrain[p] = v end) end end
-        lightEnabled = false
-        statusLabel.Text = "目前狀態：已關閉"
-        toggleButton.Text = "開啟光影"
-    else
-        selectMode("預設", "預設光影")
-    end
-end)
-restoreButton.Activated:Connect(function()
+local function turnOffLight()
     clearOwned()
     for p, v in pairs(savedLighting) do pcall(function() Lighting[p] = v end) end
     if Terrain then for p, v in pairs(savedTerrain) do pcall(function() Terrain[p] = v end) end end
     lightEnabled = false
-    statusLabel.Text = "目前狀態：已恢復"
+    currentLightMode = nil
+    statusLabel.Text = "目前狀態：已關閉"
     toggleButton.Text = "開啟光影"
+end
+
+toggleButton.Activated:Connect(function()
+    if lightEnabled then turnOffLight()
+    else selectMode("預設", "預設光影") end
+end)
+restoreButton.Activated:Connect(function()
+    turnOffLight()
+    statusLabel.Text = "目前狀態：已恢復"
 end)
 
 -- ==================== 懸浮球拖曳 ====================
@@ -525,8 +525,9 @@ do
     sunsetButton.Activated:Connect(function() selectMode("夕陽", "夕陽") end)
 end
 
--- ==================== 天空頁面（含守護機制） ====================
+-- ==================== 天空頁面 ====================
 local skyMenu
+local applySkyPresetFn, restoreOriginalSkyFn, currentSkyPresetName
 do
     skyMenu = createMenu(320, 380, 560)
     local skyScroll = skyMenu:FindFirstChild("Scroll")
@@ -563,9 +564,9 @@ do
     local skySavedTimeOfDay = Lighting.TimeOfDay
     local skySavedOutdoorAmbient = Lighting.OutdoorAmbient
     local skySavedBrightness = Lighting.Brightness
-    local currentSkyPreset = nil
     local skyGuardConnections = {}
     local isReapplying = false
+    currentSkyPresetName = nil
 
     local function hideSkyAtmosphere()
         local atm = Lighting:FindFirstChildOfClass("Atmosphere")
@@ -573,6 +574,13 @@ do
             skySavedAtmosphere = atm
             atm.Parent = nil
         end
+    end
+
+    local function findPresetByName(name)
+        for _, p in ipairs(skyPresets) do
+            if p.name == name then return p end
+        end
+        return nil
     end
 
     local function doApplySky(preset)
@@ -636,44 +644,47 @@ do
         disconnectGuard()
         table.insert(skyGuardConnections, Lighting.ChildAdded:Connect(function(child)
             if isReapplying then return end
-            if not currentSkyPreset then return end
+            if not currentSkyPresetName then return end
             if child:IsA("Sky") and child.Name ~= SKY_NAME then
                 task.defer(function()
-                    if currentSkyPreset then doApplySky(currentSkyPreset) end
+                    local p = currentSkyPresetName and findPresetByName(currentSkyPresetName)
+                    if p then doApplySky(p) end
                 end)
             end
         end))
         table.insert(skyGuardConnections, Lighting.ChildRemoved:Connect(function(child)
             if isReapplying then return end
-            if not currentSkyPreset then return end
+            if not currentSkyPresetName then return end
             if child:IsA("Sky") and child.Name == SKY_NAME then
                 task.defer(function()
-                    if currentSkyPreset then doApplySky(currentSkyPreset) end
+                    local p = currentSkyPresetName and findPresetByName(currentSkyPresetName)
+                    if p then doApplySky(p) end
                 end)
             end
         end))
         table.insert(skyGuardConnections, Lighting:GetPropertyChangedSignal("ClockTime"):Connect(function()
             if isReapplying then return end
-            if not currentSkyPreset then return end
-            if currentSkyPreset.isDark then
+            if not currentSkyPresetName then return end
+            local p = findPresetByName(currentSkyPresetName)
+            if p and p.isDark then
                 if Lighting.ClockTime > 6 and Lighting.ClockTime < 18 then
                     task.defer(function()
-                        if currentSkyPreset then doApplySky(currentSkyPreset) end
+                        if currentSkyPresetName then doApplySky(p) end
                     end)
                 end
             end
         end))
     end
 
-    local function applySkyPreset(preset)
-        currentSkyPreset = preset
+    applySkyPresetFn = function(preset, silent)
+        currentSkyPresetName = preset.name
         doApplySky(preset)
         startSkyGuard()
-        showToast("天空已切換：" .. preset.name)
+        if not silent then showToast("天空已切換：" .. preset.name) end
     end
 
-    local function restoreOriginalSky()
-        currentSkyPreset = nil
+    restoreOriginalSkyFn = function(silent)
+        currentSkyPresetName = nil
         disconnectGuard()
 
         for _, obj in ipairs(Lighting:GetChildren()) do
@@ -691,17 +702,17 @@ do
         Lighting.OutdoorAmbient = skySavedOutdoorAmbient
         Lighting.Brightness = skySavedBrightness
 
-        showToast("已恢復遊戲原本天空")
+        if not silent then showToast("已恢復遊戲原本天空") end
     end
 
     local skyY = 52
     for _, preset in ipairs(skyPresets) do
         local btn = createBtn(skyScroll, skyY, preset.name, Color3.fromRGB(60, 80, 110), 38)
-        btn.Activated:Connect(function() applySkyPreset(preset) end)
+        btn.Activated:Connect(function() applySkyPresetFn(preset, false) end)
         skyY = skyY + 44
     end
     local restoreSkyBtn = createBtn(skyScroll, skyY, "恢復原本遊戲天空", Color3.fromRGB(120, 70, 70), 38)
-    restoreSkyBtn.Activated:Connect(restoreOriginalSky)
+    restoreSkyBtn.Activated:Connect(function() restoreOriginalSkyFn(false) end)
     skyY = skyY + 44
     local skyDone = createBtn(skyScroll, skyY, "完成", Color3.fromRGB(92, 65, 76), 38)
     skyDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
@@ -778,16 +789,12 @@ do
         local p = 0
         pcall(function()
             local statsItem = Stats.Network.ServerStatsItem["Data Ping"]
-            if statsItem then
-                p = math.floor(statsItem:GetValue())
-            end
+            if statsItem then p = math.floor(statsItem:GetValue()) end
         end)
         if p == 0 then
             pcall(function()
                 local clientPing = Stats.Network.ClientStatsItem["Data Ping"]
-                if clientPing then
-                    p = math.floor(clientPing:GetValue())
-                end
+                if clientPing then p = math.floor(clientPing:GetValue()) end
             end)
         end
         return p
@@ -798,7 +805,6 @@ do
 
     local function fetchGameName()
         if cachedGameName then return cachedGameName end
-
         local ok, info = pcall(function()
             return MarketplaceService:GetProductInfo(game.PlaceId, Enum.InfoType.Asset)
         end)
@@ -806,7 +812,6 @@ do
             cachedGameName = info.Name
             return cachedGameName
         end
-
         cachedGameName = game.Name
         return cachedGameName
     end
@@ -818,9 +823,7 @@ do
         local now = tick()
         if now - lastPartCountUpdate >= 1 then
             local count = 0
-            pcall(function()
-                count = #workspace:GetDescendants()
-            end)
+            pcall(function() count = #workspace:GetDescendants() end)
             cachedPartCount = count
             lastPartCountUpdate = now
         end
@@ -891,13 +894,11 @@ do
     end)
 
     perfMenu:GetPropertyChangedSignal("Visible"):Connect(function()
-        if not perfMenu.Visible then
-            stopPerfUpdate()
-        end
+        if not perfMenu.Visible then stopPerfUpdate() end
     end)
 end
 
--- ==================== 天氣頁面（含修復） ====================
+-- ==================== 天氣頁面 ====================
 local weatherMenu, rainButton, sunnyButton, snowButton, thunderButton, thunderOffButton, weatherDone
 local rainAmount = 0.55
 local snowAmount = 0.55
@@ -908,167 +909,166 @@ local rainFolder, rainConnection, rainDrops = nil, nil, {}
 local snowFolder, snowConnection, snowFlakes = nil, nil, {}
 local thunderGui = nil
 local thunderTask = nil
+local currentWeather = "晴天"
+local startRainFn, startSnowFn, startThunderFn, stopRainFn, stopSnowFn, stopThunderFn
 
-local function stopRain()
-    if rainConnection then rainConnection:Disconnect(); rainConnection = nil end
-    if rainFolder then rainFolder:Destroy(); rainFolder = nil end
-    table.clear(rainDrops); rainEnabled = false
-end
-local function stopSnow()
-    if snowConnection then snowConnection:Disconnect(); snowConnection = nil end
-    if snowFolder then snowFolder:Destroy(); snowFolder = nil end
-    table.clear(snowFlakes); snowEnabled = false
-end
-local function stopThunder()
-    thunderEnabled = false
-    if thunderGui then thunderGui:Destroy(); thunderGui = nil end
-    thunderTask = nil
-    if thunderButton then thunderButton.Text = "閃電打雷" end
-end
-local function rainCount() return math.floor(100 + rainAmount * 900) end
-local function resizeRain()
-    if not rainFolder then return end
-    local folder = rainFolder:FindFirstChild("Drops"); if not folder then return end
-    while #rainDrops < rainCount() do
-        local part = Instance.new("Part")
-        part.Anchored = true; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false
-        part.Material = Enum.Material.Neon
-        part.Color = Color3.fromRGB(165, 198, 230)
-        part.Transparency = 0.18
-        part.Size = Vector3.new(0.08, math.random(34, 58) / 10, 0.08)
-        part.Parent = folder
-        table.insert(rainDrops, {part = part, offset = Vector3.new(math.random(-70, 70), math.random(-10, 70), math.random(-70, 70)), speed = math.random(78, 122)})
+do
+    stopRainFn = function()
+        if rainConnection then rainConnection:Disconnect(); rainConnection = nil end
+        if rainFolder then rainFolder:Destroy(); rainFolder = nil end
+        table.clear(rainDrops); rainEnabled = false
     end
-    while #rainDrops > rainCount() do
-        local drop = table.remove(rainDrops)
-        if drop and drop.part then drop.part:Destroy() end
+    stopSnowFn = function()
+        if snowConnection then snowConnection:Disconnect(); snowConnection = nil end
+        if snowFolder then snowFolder:Destroy(); snowFolder = nil end
+        table.clear(snowFlakes); snowEnabled = false
     end
-end
-local function startRain()
-    stopRain(); stopSnow()
-    rainEnabled = true
-    rainFolder = Instance.new("Folder"); rainFolder.Name = PREFIX .. "Rain"; rainFolder.Parent = workspace
-    local folder = Instance.new("Folder"); folder.Name = "Drops"; folder.Parent = rainFolder
-    resizeRain()
-    rainConnection = RunService.RenderStepped:Connect(function(dt)
-        local camera = workspace.CurrentCamera; if not camera then return end
-        for _, drop in ipairs(rainDrops) do
-            if drop.part and drop.part.Parent then
-                drop.offset = drop.offset - Vector3.new(3.5, drop.speed, 2.2) * dt
-                if drop.offset.Y < -12 then
-                    drop.offset = Vector3.new(math.random(-70, 70), math.random(46, 75), math.random(-70, 70))
-                end
-                drop.part.Position = camera.CFrame.Position + drop.offset
-            end
+    stopThunderFn = function()
+        thunderEnabled = false
+        if thunderGui then thunderGui:Destroy(); thunderGui = nil end
+        thunderTask = nil
+        if thunderButton then thunderButton.Text = "閃電打雷" end
+    end
+    local function rainCount() return math.floor(100 + rainAmount * 900) end
+    local function resizeRain()
+        if not rainFolder then return end
+        local folder = rainFolder:FindFirstChild("Drops"); if not folder then return end
+        while #rainDrops < rainCount() do
+            local part = Instance.new("Part")
+            part.Anchored = true; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false
+            part.Material = Enum.Material.Neon
+            part.Color = Color3.fromRGB(165, 198, 230)
+            part.Transparency = 0.18
+            part.Size = Vector3.new(0.08, math.random(34, 58) / 10, 0.08)
+            part.Parent = folder
+            table.insert(rainDrops, {part = part, offset = Vector3.new(math.random(-70, 70), math.random(-10, 70), math.random(-70, 70)), speed = math.random(78, 122)})
         end
-    end)
-    weatherButton.Text = "目前天氣：下雨"
-end
-local function snowCount() return math.floor(80 + snowAmount * 700) end
-local function resizeSnow()
-    if not snowFolder then return end
-    local folder = snowFolder:FindFirstChild("Flakes"); if not folder then return end
-    while #snowFlakes < snowCount() do
-        local part = Instance.new("Part")
-        part.Anchored = true; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false
-        part.Material = Enum.Material.Neon
-        part.Color = Color3.fromRGB(255, 255, 255)
-        part.Transparency = 0.15
-        local s = math.random(8, 18) / 100
-        part.Size = Vector3.new(s, s, s)
-        part.Shape = Enum.PartType.Ball
-        part.Parent = folder
-        table.insert(snowFlakes, {part = part, offset = Vector3.new(math.random(-70, 70), math.random(20, 70), math.random(-70, 70)), speed = math.random(15, 30), sway = math.random(0, 360)})
-    end
-    while #snowFlakes > snowCount() do
-        local flake = table.remove(snowFlakes)
-        if flake and flake.part then flake.part:Destroy() end
-    end
-end
-local function startSnow()
-    stopRain(); stopSnow()
-    snowEnabled = true
-    snowFolder = Instance.new("Folder"); snowFolder.Name = PREFIX .. "Snow"; snowFolder.Parent = workspace
-    local folder = Instance.new("Folder"); folder.Name = "Flakes"; folder.Parent = snowFolder
-    resizeSnow()
-    snowConnection = RunService.RenderStepped:Connect(function(dt)
-        local camera = workspace.CurrentCamera; if not camera then return end
-        for _, flake in ipairs(snowFlakes) do
-            if flake.part and flake.part.Parent then
-                flake.sway = flake.sway + dt * 2
-                local swayX = math.sin(flake.sway) * 2
-                flake.offset = flake.offset - Vector3.new(swayX, flake.speed, 1.5) * dt
-                if flake.offset.Y < -12 then
-                    flake.offset = Vector3.new(math.random(-70, 70), math.random(50, 80), math.random(-70, 70))
-                end
-                flake.part.Position = camera.CFrame.Position + flake.offset
-            end
+        while #rainDrops > rainCount() do
+            local drop = table.remove(rainDrops)
+            if drop and drop.part then drop.part:Destroy() end
         end
-    end)
-    weatherButton.Text = "目前天氣：下雪"
-end
-local function startThunder()
-    if not rainEnabled then
-        showToast("請先開啟下雨才能使用閃電")
-        return
     end
-    if thunderEnabled then
-        stopThunder()
-        showToast("閃電已關閉")
-        return
+    startRainFn = function()
+        stopRainFn(); stopSnowFn()
+        rainEnabled = true
+        rainFolder = Instance.new("Folder"); rainFolder.Name = PREFIX .. "Rain"; rainFolder.Parent = workspace
+        local folder = Instance.new("Folder"); folder.Name = "Drops"; folder.Parent = rainFolder
+        resizeRain()
+        rainConnection = RunService.RenderStepped:Connect(function(dt)
+            local camera = workspace.CurrentCamera; if not camera then return end
+            for _, drop in ipairs(rainDrops) do
+                if drop.part and drop.part.Parent then
+                    drop.offset = drop.offset - Vector3.new(3.5, drop.speed, 2.2) * dt
+                    if drop.offset.Y < -12 then
+                        drop.offset = Vector3.new(math.random(-70, 70), math.random(46, 75), math.random(-70, 70))
+                    end
+                    drop.part.Position = camera.CFrame.Position + drop.offset
+                end
+            end
+        end)
+        weatherButton.Text = "目前天氣：下雨"
+        currentWeather = "下雨"
     end
-    thunderEnabled = true
-    thunderButton.Text = "閃電打雷：已開啟"
-    thunderGui = Instance.new("ScreenGui")
-    thunderGui.Name = PREFIX .. "Thunder"
-    thunderGui.ResetOnSpawn = false
-    thunderGui.IgnoreGuiInset = true
-    thunderGui.DisplayOrder = 999997
-    thunderGui.Parent = PlayerGui
-    local flash = Instance.new("Frame")
-    flash.Size = UDim2.fromScale(1, 1)
-    flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-    flash.BackgroundTransparency = 1
-    flash.BorderSizePixel = 0
-    flash.ZIndex = 999999
-    flash.Parent = thunderGui
-    thunderTask = task.spawn(function()
-        while thunderEnabled do
-            task.wait(math.random(5, 12))
-            if not thunderEnabled then break end
-            if not flash or not flash.Parent then break end
-
-            for i = 1, math.random(2, 3) do
+    local function snowCount() return math.floor(80 + snowAmount * 700) end
+    local function resizeSnow()
+        if not snowFolder then return end
+        local folder = snowFolder:FindFirstChild("Flakes"); if not folder then return end
+        while #snowFlakes < snowCount() do
+            local part = Instance.new("Part")
+            part.Anchored = true; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false
+            part.Material = Enum.Material.Neon
+            part.Color = Color3.fromRGB(255, 255, 255)
+            part.Transparency = 0.15
+            local s = math.random(8, 18) / 100
+            part.Size = Vector3.new(s, s, s)
+            part.Shape = Enum.PartType.Ball
+            part.Parent = folder
+            table.insert(snowFlakes, {part = part, offset = Vector3.new(math.random(-70, 70), math.random(20, 70), math.random(-70, 70)), speed = math.random(15, 30), sway = math.random(0, 360)})
+        end
+        while #snowFlakes > snowCount() do
+            local flake = table.remove(snowFlakes)
+            if flake and flake.part then flake.part:Destroy() end
+        end
+    end
+    startSnowFn = function()
+        stopRainFn(); stopSnowFn()
+        snowEnabled = true
+        snowFolder = Instance.new("Folder"); snowFolder.Name = PREFIX .. "Snow"; snowFolder.Parent = workspace
+        local folder = Instance.new("Folder"); folder.Name = "Flakes"; folder.Parent = snowFolder
+        resizeSnow()
+        snowConnection = RunService.RenderStepped:Connect(function(dt)
+            local camera = workspace.CurrentCamera; if not camera then return end
+            for _, flake in ipairs(snowFlakes) do
+                if flake.part and flake.part.Parent then
+                    flake.sway = flake.sway + dt * 2
+                    local swayX = math.sin(flake.sway) * 2
+                    flake.offset = flake.offset - Vector3.new(swayX, flake.speed, 1.5) * dt
+                    if flake.offset.Y < -12 then
+                        flake.offset = Vector3.new(math.random(-70, 70), math.random(50, 80), math.random(-70, 70))
+                    end
+                    flake.part.Position = camera.CFrame.Position + flake.offset
+                end
+            end
+        end)
+        weatherButton.Text = "目前天氣：下雪"
+        currentWeather = "下雪"
+    end
+    startThunderFn = function()
+        if not rainEnabled then
+            showToast("請先開啟下雨才能使用閃電")
+            return
+        end
+        if thunderEnabled then
+            stopThunderFn()
+            showToast("閃電已關閉")
+            return
+        end
+        thunderEnabled = true
+        thunderButton.Text = "閃電打雷：已開啟"
+        thunderGui = Instance.new("ScreenGui")
+        thunderGui.Name = PREFIX .. "Thunder"
+        thunderGui.ResetOnSpawn = false
+        thunderGui.IgnoreGuiInset = true
+        thunderGui.DisplayOrder = 999997
+        thunderGui.Parent = PlayerGui
+        local flash = Instance.new("Frame")
+        flash.Size = UDim2.fromScale(1, 1)
+        flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+        flash.BackgroundTransparency = 1
+        flash.BorderSizePixel = 0
+        flash.ZIndex = 999999
+        flash.Parent = thunderGui
+        thunderTask = task.spawn(function()
+            while thunderEnabled do
+                task.wait(math.random(5, 12))
                 if not thunderEnabled then break end
-                if flash and flash.Parent then
-                    flash.BackgroundTransparency = 0.2
-                    task.wait(0.05)
-                    flash.BackgroundTransparency = 0.85
-                    task.wait(0.08)
+                if not flash or not flash.Parent then break end
+                for i = 1, math.random(2, 3) do
+                    if not thunderEnabled then break end
+                    if flash and flash.Parent then
+                        flash.BackgroundTransparency = 0.2
+                        task.wait(0.05)
+                        flash.BackgroundTransparency = 0.85
+                        task.wait(0.08)
+                    end
                 end
+                if flash and flash.Parent then flash.BackgroundTransparency = 1 end
+                if not thunderEnabled then break end
+                pcall(function()
+                    local s = Instance.new("Sound")
+                    s.SoundId = THUNDER_SOUND
+                    s.Volume = 2
+                    s.PlaybackSpeed = 0.7
+                    s.Parent = SoundService
+                    s:Play()
+                    task.delay(5, function() s:Destroy() end)
+                end)
             end
-
-            if flash and flash.Parent then
-                flash.BackgroundTransparency = 1
-            end
-
-            if not thunderEnabled then break end
-
-            pcall(function()
-                local s = Instance.new("Sound")
-                s.SoundId = THUNDER_SOUND
-                s.Volume = 2
-                s.PlaybackSpeed = 0.7
-                s.Parent = SoundService
-                s:Play()
-                task.delay(5, function() s:Destroy() end)
-            end)
-        end
-        if flash and flash.Parent then
-            flash.BackgroundTransparency = 1
-        end
-    end)
-    showToast("閃電已開啟")
+            if flash and flash.Parent then flash.BackgroundTransparency = 1 end
+        end)
+        showToast("閃電已開啟")
+        currentWeather = "閃電"
+    end
 end
 
 do
@@ -1134,18 +1134,19 @@ do
     weatherButton.Activated:Connect(function() closeAllMenus(); weatherMenu.Visible = true end)
     weatherDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 
-    rainButton.Activated:Connect(function() startRain(); closeAllMenus(); main.Visible = true end)
+    rainButton.Activated:Connect(function() startRainFn(); closeAllMenus(); main.Visible = true end)
     sunnyButton.Activated:Connect(function()
-        stopRain(); stopSnow(); stopThunder()
+        stopRainFn(); stopSnowFn(); stopThunderFn()
         thunderButton.Text = "閃電打雷"
         weatherButton.Text = "目前天氣：晴天"
+        currentWeather = "晴天"
         closeAllMenus(); main.Visible = true
     end)
-    snowButton.Activated:Connect(function() startSnow(); closeAllMenus(); main.Visible = true end)
-    thunderButton.Activated:Connect(function() startThunder() end)
+    snowButton.Activated:Connect(function() startSnowFn(); closeAllMenus(); main.Visible = true end)
+    thunderButton.Activated:Connect(function() startThunderFn() end)
     thunderOffButton.Activated:Connect(function()
         if thunderEnabled then
-            stopThunder()
+            stopThunderFn()
             showToast("閃電已關閉")
         else
             showToast("目前沒有打雷")
@@ -1162,7 +1163,26 @@ do
         if rainAmount < 0.34 then rainLabel.Text = "雨量：小"
         elseif rainAmount < 0.67 then rainLabel.Text = "雨量：中"
         else rainLabel.Text = "雨量：大" end
-        if rainEnabled then resizeRain() end
+        if rainEnabled then
+            local folder = rainFolder and rainFolder:FindFirstChild("Drops")
+            if folder then
+                local cnt = math.floor(100 + rainAmount * 900)
+                while #rainDrops < cnt do
+                    local part = Instance.new("Part")
+                    part.Anchored = true; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false
+                    part.Material = Enum.Material.Neon
+                    part.Color = Color3.fromRGB(165, 198, 230)
+                    part.Transparency = 0.18
+                    part.Size = Vector3.new(0.08, math.random(34, 58) / 10, 0.08)
+                    part.Parent = folder
+                    table.insert(rainDrops, {part = part, offset = Vector3.new(math.random(-70, 70), math.random(-10, 70), math.random(-70, 70)), speed = math.random(78, 122)})
+                end
+                while #rainDrops > cnt do
+                    local drop = table.remove(rainDrops)
+                    if drop and drop.part then drop.part:Destroy() end
+                end
+            end
+        end
     end
     local function updateSnowSlider(input)
         local width = math.max(snowTrack.AbsoluteSize.X, 1)
@@ -1172,7 +1192,28 @@ do
         if snowAmount < 0.34 then snowLabel.Text = "雪量：小"
         elseif snowAmount < 0.67 then snowLabel.Text = "雪量：中"
         else snowLabel.Text = "雪量：大" end
-        if snowEnabled then resizeSnow() end
+        if snowEnabled then
+            local folder = snowFolder and snowFolder:FindFirstChild("Flakes")
+            if folder then
+                local cnt = math.floor(80 + snowAmount * 700)
+                while #snowFlakes < cnt do
+                    local part = Instance.new("Part")
+                    part.Anchored = true; part.CanCollide = false; part.CanTouch = false; part.CanQuery = false
+                    part.Material = Enum.Material.Neon
+                    part.Color = Color3.fromRGB(255, 255, 255)
+                    part.Transparency = 0.15
+                    local s = math.random(8, 18) / 100
+                    part.Size = Vector3.new(s, s, s)
+                    part.Shape = Enum.PartType.Ball
+                    part.Parent = folder
+                    table.insert(snowFlakes, {part = part, offset = Vector3.new(math.random(-70, 70), math.random(20, 70), math.random(-70, 70)), speed = math.random(15, 30), sway = math.random(0, 360)})
+                end
+                while #snowFlakes > cnt do
+                    local flake = table.remove(snowFlakes)
+                    if flake and flake.part then flake.part:Destroy() end
+                end
+            end
+        end
     end
     rainTrack.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1204,6 +1245,7 @@ end
 -- ==================== 準心頁面 ====================
 local crosshairMenu
 local crosshairScale = 1.0
+local currentCrosshair = "無"
 local rotationCrosshairEnabled = false
 local rotationCrosshairGui = nil
 local rotationCrosshairHolder = nil
@@ -1248,7 +1290,7 @@ local function createRotatingLine(parent, size, position)
     local s = Instance.new("UIStroke"); s.Thickness = 1.5; s.Color = Color3.fromRGB(10, 10, 10); s.Parent = line
     table.insert(rotationCrosshairLines, line)
 end
-local function createRotatingCrosshair()
+local createRotatingCrosshairFn = function()
     removeTechCrosshair(); removeBlackDiamondCrosshair(); removeRotatingCrosshair()
     rotationCrosshairEnabled = true
     rotationCrosshairRotation = 0
@@ -1308,7 +1350,7 @@ local function addTechLine(parent, size, position)
     local stroke = Instance.new("UIStroke"); stroke.Thickness = 1.3; stroke.Color = Color3.fromRGB(15, 80, 35); stroke.Parent = line
     table.insert(techCrosshairObjects, line)
 end
-local function createTechCrosshair()
+local createTechCrosshairFn = function()
     removeRotatingCrosshair(); removeBlackDiamondCrosshair(); removeTechCrosshair()
     techCrosshairEnabled = true
     techCrosshairGui = Instance.new("ScreenGui")
@@ -1351,7 +1393,7 @@ local function createTechCrosshair()
         end
     end)
 end
-local function createBlackDiamondCrosshair()
+local createBlackDiamondCrosshairFn = function()
     removeRotatingCrosshair(); removeTechCrosshair(); removeBlackDiamondCrosshair()
     blackDiamondEnabled = true
     blackDiamondGui = Instance.new("ScreenGui")
@@ -1370,30 +1412,18 @@ local function createBlackDiamondCrosshair()
     holder.Parent = blackDiamondGui
     local sz = 14 * crosshairScale
     local th = 2.5 * crosshairScale
-    local topLine = Instance.new("Frame")
-    topLine.Size = UDim2.fromOffset(sz, th)
-    topLine.Position = UDim2.new(0.5, -sz/2, 0.5, -sz)
-    topLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    topLine.BorderSizePixel = 0; topLine.ZIndex = 5201; topLine.Parent = holder
-    table.insert(blackDiamondObjects, topLine)
-    local bottomLine = Instance.new("Frame")
-    bottomLine.Size = UDim2.fromOffset(sz, th)
-    bottomLine.Position = UDim2.new(0.5, -sz/2, 0.5, sz - th)
-    bottomLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    bottomLine.BorderSizePixel = 0; bottomLine.ZIndex = 5201; bottomLine.Parent = holder
-    table.insert(blackDiamondObjects, bottomLine)
-    local leftLine = Instance.new("Frame")
-    leftLine.Size = UDim2.fromOffset(th, sz)
-    leftLine.Position = UDim2.new(0.5, -sz/2 - th, 0.5, -sz/2)
-    leftLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    leftLine.BorderSizePixel = 0; leftLine.ZIndex = 5201; leftLine.Parent = holder
-    table.insert(blackDiamondObjects, leftLine)
-    local rightLine = Instance.new("Frame")
-    rightLine.Size = UDim2.fromOffset(th, sz)
-    rightLine.Position = UDim2.new(0.5, sz/2, 0.5, -sz/2)
-    rightLine.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
-    rightLine.BorderSizePixel = 0; rightLine.ZIndex = 5201; rightLine.Parent = holder
-    table.insert(blackDiamondObjects, rightLine)
+    local function mkLine(size, pos)
+        local l = Instance.new("Frame")
+        l.Size = size; l.Position = pos
+        l.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+        l.BorderSizePixel = 0; l.ZIndex = 5201; l.Parent = holder
+        table.insert(blackDiamondObjects, l)
+        return l
+    end
+    mkLine(UDim2.fromOffset(sz, th), UDim2.new(0.5, -sz/2, 0.5, -sz))
+    mkLine(UDim2.fromOffset(sz, th), UDim2.new(0.5, -sz/2, 0.5, sz - th))
+    mkLine(UDim2.fromOffset(th, sz), UDim2.new(0.5, -sz/2 - th, 0.5, -sz/2))
+    mkLine(UDim2.fromOffset(th, sz), UDim2.new(0.5, sz/2, 0.5, -sz/2))
     local centerDot = Instance.new("Frame")
     centerDot.Size = UDim2.fromOffset(4 * crosshairScale, 4 * crosshairScale)
     centerDot.Position = UDim2.new(0.5, -2 * crosshairScale, 0.5, -2 * crosshairScale)
@@ -1460,29 +1490,29 @@ do
 
     rotationButton.Activated:Connect(function()
         if rotationCrosshairEnabled then
-            removeRotatingCrosshair(); rotationButton.Text = "開啟旋轉準心"
+            removeRotatingCrosshair(); currentCrosshair = "無"; rotationButton.Text = "開啟旋轉準心"
         else
             removeTechCrosshair(); removeBlackDiamondCrosshair()
             techButton.Text = "開啟科技準心"; blackDiamondButton.Text = "開啟黑色菱形準星"
-            createRotatingCrosshair(); rotationButton.Text = "關閉旋轉準心"
+            createRotatingCrosshairFn(); currentCrosshair = "旋轉"; rotationButton.Text = "關閉旋轉準心"
         end
     end)
     techButton.Activated:Connect(function()
         if techCrosshairEnabled then
-            removeTechCrosshair(); techButton.Text = "開啟科技準心"
+            removeTechCrosshair(); currentCrosshair = "無"; techButton.Text = "開啟科技準心"
         else
             removeRotatingCrosshair(); removeBlackDiamondCrosshair()
             rotationButton.Text = "開啟旋轉準心"; blackDiamondButton.Text = "開啟黑色菱形準星"
-            createTechCrosshair(); techButton.Text = "關閉科技準心"
+            createTechCrosshairFn(); currentCrosshair = "科技"; techButton.Text = "關閉科技準心"
         end
     end)
     blackDiamondButton.Activated:Connect(function()
         if blackDiamondEnabled then
-            removeBlackDiamondCrosshair(); blackDiamondButton.Text = "開啟黑色菱形準星"
+            removeBlackDiamondCrosshair(); currentCrosshair = "無"; blackDiamondButton.Text = "開啟黑色菱形準星"
         else
             removeRotatingCrosshair(); removeTechCrosshair()
             rotationButton.Text = "開啟旋轉準心"; techButton.Text = "開啟科技準心"
-            createBlackDiamondCrosshair(); blackDiamondButton.Text = "關閉黑色菱形準星"
+            createBlackDiamondCrosshairFn(); currentCrosshair = "黑色菱形"; blackDiamondButton.Text = "關閉黑色菱形準星"
         end
     end)
 
@@ -1494,9 +1524,9 @@ do
         crosshairScale = 0.3 + ratio * 2.7
         scaleKnob.Position = UDim2.new(ratio, -12, 0.5, -12)
         scaleLabel.Text = string.format("準心大小：%.1fx", crosshairScale)
-        if rotationCrosshairEnabled then createRotatingCrosshair() end
-        if techCrosshairEnabled then createTechCrosshair() end
-        if blackDiamondEnabled then createBlackDiamondCrosshair() end
+        if rotationCrosshairEnabled then createRotatingCrosshairFn() end
+        if techCrosshairEnabled then createTechCrosshairFn() end
+        if blackDiamondEnabled then createBlackDiamondCrosshairFn() end
     end
     scaleTrack.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
@@ -1516,6 +1546,8 @@ end
 
 -- ==================== 畫面設定頁面 ====================
 local settingMenu
+local lowHpEnabled, fpsCounterEnabled
+local lowHpToggleFn, fpsCounterToggleFn
 do
     settingMenu = createMenu(320, 360, 420)
     local settingScroll = settingMenu:FindFirstChild("Scroll")
@@ -1534,23 +1566,22 @@ do
     local minecraftEnabled = false
     local blackTextureEnabled = false
     local stretchEnabled = false
-    local fpsCounterEnabled = false
     local fpsGui, fpsLabel, fpsConnection = nil, nil, nil
     local fpsFrameCount, fpsTimeElapsed = 0, 0
-
-    local lowHpEnabled = false
     local lowHpGui = nil
     local lowHpFrame = nil
     local lowHpConnection = nil
+    lowHpEnabled = false
+    fpsCounterEnabled = false
 
-    local function toggleLowHp()
+    lowHpToggleFn = function(silent)
         if lowHpEnabled then
             lowHpEnabled = false
             if lowHpConnection then lowHpConnection:Disconnect(); lowHpConnection = nil end
             if lowHpGui then lowHpGui:Destroy(); lowHpGui = nil end
             lowHpFrame = nil
             lowHpButton.Text = "低血量警示"
-            showToast("低血量警示已關閉")
+            if not silent then showToast("低血量警示已關閉") end
         else
             lowHpEnabled = true
             lowHpGui = Instance.new("ScreenGui")
@@ -1589,10 +1620,59 @@ do
                 end
             end)
             lowHpButton.Text = "低血量警示：已開啟"
-            showToast("低血量警示已開啟")
+            if not silent then showToast("低血量警示已開啟") end
         end
     end
-    lowHpButton.Activated:Connect(toggleLowHp)
+    fpsCounterToggleFn = function(silent)
+        if fpsCounterEnabled then
+            fpsCounterEnabled = false
+            if fpsConnection then fpsConnection:Disconnect(); fpsConnection = nil end
+            if fpsGui then fpsGui:Destroy(); fpsGui = nil end
+            fpsCounterButton.Text = "FPS 顯示器"
+            if not silent then showToast("FPS顯示器已關閉") end
+        else
+            fpsCounterEnabled = true
+            fpsFrameCount = 0
+            fpsTimeElapsed = 0
+            fpsGui = Instance.new("ScreenGui")
+            fpsGui.Name = PREFIX .. "FpsDisplay"
+            fpsGui.ResetOnSpawn = false
+            fpsGui.IgnoreGuiInset = true
+            fpsGui.DisplayOrder = 999998
+            fpsGui.Parent = PlayerGui
+            fpsLabel = Instance.new("TextLabel")
+            fpsLabel.Size = UDim2.fromOffset(120, 32)
+            fpsLabel.Position = UDim2.new(1, -130, 0, 12)
+            fpsLabel.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
+            fpsLabel.BackgroundTransparency = 0.35
+            fpsLabel.Text = "FPS: --"
+            fpsLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
+            fpsLabel.TextSize = 16
+            fpsLabel.Font = Enum.Font.GothamBold
+            fpsLabel.ZIndex = 999999
+            fpsLabel.Parent = fpsGui
+            local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(0, 8); fc.Parent = fpsLabel
+            fpsConnection = RunService.RenderStepped:Connect(function(dt)
+                fpsFrameCount = fpsFrameCount + 1
+                fpsTimeElapsed = fpsTimeElapsed + dt
+                if fpsTimeElapsed >= 0.5 then
+                    local fps = math.floor(fpsFrameCount / fpsTimeElapsed + 0.5)
+                    fpsFrameCount = 0
+                    fpsTimeElapsed = 0
+                    if fpsLabel then
+                        fpsLabel.Text = "FPS: " .. fps
+                        if fps >= 50 then fpsLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
+                        elseif fps >= 30 then fpsLabel.TextColor3 = Color3.fromRGB(255, 220, 100)
+                        else fpsLabel.TextColor3 = Color3.fromRGB(255, 100, 100) end
+                    end
+                end
+            end)
+            fpsCounterButton.Text = "FPS 顯示器：已開啟"
+            if not silent then showToast("FPS顯示器已開啟") end
+        end
+    end
+    lowHpButton.Activated:Connect(function() lowHpToggleFn(false) end)
+    fpsCounterButton.Activated:Connect(function() fpsCounterToggleFn(false) end)
 
     fpsButton.Activated:Connect(function()
         if fpsEnabled then showToast("增加FPS已載入"); return end
@@ -1650,54 +1730,6 @@ do
             showToast("螢幕拉伸已開啟")
         end
     end)
-    fpsCounterButton.Activated:Connect(function()
-        if fpsCounterEnabled then
-            fpsCounterEnabled = false
-            if fpsConnection then fpsConnection:Disconnect(); fpsConnection = nil end
-            if fpsGui then fpsGui:Destroy(); fpsGui = nil end
-            fpsCounterButton.Text = "FPS 顯示器"
-            showToast("FPS顯示器已關閉")
-        else
-            fpsCounterEnabled = true
-            fpsFrameCount = 0
-            fpsTimeElapsed = 0
-            fpsGui = Instance.new("ScreenGui")
-            fpsGui.Name = PREFIX .. "FpsDisplay"
-            fpsGui.ResetOnSpawn = false
-            fpsGui.IgnoreGuiInset = true
-            fpsGui.DisplayOrder = 999998
-            fpsGui.Parent = PlayerGui
-            fpsLabel = Instance.new("TextLabel")
-            fpsLabel.Size = UDim2.fromOffset(120, 32)
-            fpsLabel.Position = UDim2.new(1, -130, 0, 12)
-            fpsLabel.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
-            fpsLabel.BackgroundTransparency = 0.35
-            fpsLabel.Text = "FPS: --"
-            fpsLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
-            fpsLabel.TextSize = 16
-            fpsLabel.Font = Enum.Font.GothamBold
-            fpsLabel.ZIndex = 999999
-            fpsLabel.Parent = fpsGui
-            local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(0, 8); fc.Parent = fpsLabel
-            fpsConnection = RunService.RenderStepped:Connect(function(dt)
-                fpsFrameCount = fpsFrameCount + 1
-                fpsTimeElapsed = fpsTimeElapsed + dt
-                if fpsTimeElapsed >= 0.5 then
-                    local fps = math.floor(fpsFrameCount / fpsTimeElapsed + 0.5)
-                    fpsFrameCount = 0
-                    fpsTimeElapsed = 0
-                    if fpsLabel then
-                        fpsLabel.Text = "FPS: " .. fps
-                        if fps >= 50 then fpsLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
-                        elseif fps >= 30 then fpsLabel.TextColor3 = Color3.fromRGB(255, 220, 100)
-                        else fpsLabel.TextColor3 = Color3.fromRGB(255, 100, 100) end
-                    end
-                end
-            end)
-            fpsCounterButton.Text = "FPS 顯示器：已開啟"
-            showToast("FPS顯示器已開啟")
-        end
-    end)
 end
 
 -- ==================== 音樂頁面 ====================
@@ -1705,45 +1737,46 @@ local musicMenu
 local musicSound = nil
 local musicVolume = 1.0
 local musicSaves = {}
-
-local function saveMusicData()
-    pcall(function()
-        if writefile then writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(musicSaves)) end
-    end)
-end
-local function loadMusicData()
-    local s, data = pcall(function()
-        if readfile and isfile and isfile(SAVE_FILE) then
-            return game:GetService("HttpService"):JSONDecode(readfile(SAVE_FILE))
-        end
-        return nil
-    end)
-    if s and data and type(data) == "table" then musicSaves = data; return true end
-    return false
-end
-local function playMusicById(id)
-    if not id or id == "" then showToast("請輸入音樂 ID"); return end
-    if musicSound then musicSound:Destroy(); musicSound = nil end
-    local s = pcall(function()
-        musicSound = Instance.new("Sound")
-        musicSound.Name = PREFIX .. "Music"
-        musicSound.SoundId = "rbxassetid://" .. id
-        musicSound.Looped = true
-        musicSound.Volume = musicVolume
-        musicSound.Parent = SoundService
-        musicSound:Play()
-    end)
-    if s then showToast("音樂播放中") else showToast("音樂播放失敗") end
-end
-local function stopMusic()
-    if musicSound then
-        pcall(function() musicSound:Stop(); musicSound:Destroy() end)
-        musicSound = nil
-    end
-    showToast("音樂已停止")
-end
+local saveMusicData, loadMusicData
 
 do
+    saveMusicData = function()
+        pcall(function()
+            if writefile then writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(musicSaves)) end
+        end)
+    end
+    loadMusicData = function()
+        local s, data = pcall(function()
+            if readfile and isfile and isfile(SAVE_FILE) then
+                return game:GetService("HttpService"):JSONDecode(readfile(SAVE_FILE))
+            end
+            return nil
+        end)
+        if s and data and type(data) == "table" then musicSaves = data; return true end
+        return false
+    end
+    local function playMusicById(id)
+        if not id or id == "" then showToast("請輸入音樂 ID"); return end
+        if musicSound then musicSound:Destroy(); musicSound = nil end
+        local s = pcall(function()
+            musicSound = Instance.new("Sound")
+            musicSound.Name = PREFIX .. "Music"
+            musicSound.SoundId = "rbxassetid://" .. id
+            musicSound.Looped = true
+            musicSound.Volume = musicVolume
+            musicSound.Parent = SoundService
+            musicSound:Play()
+        end)
+        if s then showToast("音樂播放中") else showToast("音樂播放失敗") end
+    end
+    local function stopMusic()
+        if musicSound then
+            pcall(function() musicSound:Stop(); musicSound:Destroy() end)
+            musicSound = nil
+        end
+        showToast("音樂已停止")
+    end
+
     musicMenu = createMenu(320, 380, 650)
     local musicScroll = musicMenu:FindFirstChild("Scroll")
     createTitle(musicScroll, "音樂播放器")
@@ -1925,6 +1958,259 @@ do
     end)
 end
 
+-- ==================== 存檔系統 ====================
+local presetSaves = {}
+local presetSaveListFrame = nil
+local presetExpanded = false
+
+local function loadPresetData()
+    local s, data = pcall(function()
+        if readfile and isfile and isfile(PRESET_FILE) then
+            return game:GetService("HttpService"):JSONDecode(readfile(PRESET_FILE))
+        end
+        return nil
+    end)
+    if s and data and type(data) == "table" then presetSaves = data; return true end
+    return false
+end
+local function savePresetData()
+    pcall(function()
+        if writefile then writefile(PRESET_FILE, game:GetService("HttpService"):JSONEncode(presetSaves)) end
+    end)
+end
+
+local function getCurrentSnapshot()
+    return {
+        lightEnabled = lightEnabled,
+        lightMode = currentLightMode,
+        fogAmount = fogAmount,
+        skyName = currentSkyPresetName,
+        weather = currentWeather,
+        rainAmount = rainAmount,
+        snowAmount = snowAmount,
+        crosshair = currentCrosshair,
+        crosshairScale = crosshairScale,
+        lowHp = lowHpEnabled,
+        fpsCounter = fpsCounterEnabled
+    }
+end
+
+local function resetAll()
+    -- 關閉所有功能
+    if lightEnabled then turnOffLight() end
+    if currentSkyPresetName then restoreOriginalSkyFn(true) end
+    stopRainFn(); stopSnowFn(); stopThunderFn()
+    thunderButton.Text = "閃電打雷"
+    weatherButton.Text = "目前天氣：晴天"
+    currentWeather = "晴天"
+    removeRotatingCrosshair(); removeTechCrosshair(); removeBlackDiamondCrosshair()
+    currentCrosshair = "無"
+    if lowHpEnabled then lowHpToggleFn(true) end
+    if fpsCounterEnabled then fpsCounterToggleFn(true) end
+end
+
+local function applySnapshot(data)
+    resetAll()
+    task.wait(0.1)
+
+    -- 光影
+    if data.lightEnabled and data.lightMode then
+        selectMode(data.lightMode, data.lightMode == "預設" and "預設光影" or data.lightMode)
+    end
+
+    -- 霧量
+    if data.fogAmount then fogAmount = data.fogAmount end
+
+    -- 天空
+    if data.skyName then
+        local skyPresets = {
+            { name = "粉红日落", sameId = "rbxassetid://151165214" },
+            { name = "Skeleton 风格", sameId = "rbxassetid://169585459" },
+            { name = "末日红天", faces = { Bk = "rbxassetid://1012890", Dn = "rbxassetid://1012891", Ft = "rbxassetid://1012887", Lf = "rbxassetid://1012889", Rt = "rbxassetid://1012888", Up = "rbxassetid://1014449" } },
+            { name = "c00lkidd", sameId = "rbxassetid://8408806737" },
+            { name = "夜空", faces = { Bk = "rbxassetid://2503254921", Dn = "rbxassetid://2503255146", Ft = "rbxassetid://2503255274", Lf = "rbxassetid://2503255403", Rt = "rbxassetid://2503255557", Up = "rbxassetid://2503255747" }, isDark = true },
+            { name = "Nyan Cat", sameId = "rbxassetid://50767914" },
+            { name = "Spongebob", sameId = "rbxassetid://92663158118274" },
+            { name = "Matrix", sameId = "rbxassetid://191546360" }
+        }
+        for _, p in ipairs(skyPresets) do
+            if p.name == data.skyName then
+                applySkyPresetFn(p, true)
+                break
+            end
+        end
+    end
+
+    -- 天氣
+    if data.rainAmount then rainAmount = data.rainAmount end
+    if data.snowAmount then snowAmount = data.snowAmount end
+    if data.weather == "下雨" then startRainFn()
+    elseif data.weather == "下雪" then startSnowFn()
+    elseif data.weather == "閃電" then startRainFn(); task.wait(0.1); startThunderFn()
+    end
+
+    -- 準心
+    if data.crosshairScale then crosshairScale = data.crosshairScale end
+    if data.crosshair == "旋轉" then createRotatingCrosshairFn(); currentCrosshair = "旋轉"
+    elseif data.crosshair == "科技" then createTechCrosshairFn(); currentCrosshair = "科技"
+    elseif data.crosshair == "黑色菱形" then createBlackDiamondCrosshairFn(); currentCrosshair = "黑色菱形"
+    end
+
+    -- 低血量
+    if data.lowHp and not lowHpEnabled then lowHpToggleFn(true) end
+    -- FPS顯示器
+    if data.fpsCounter and not fpsCounterEnabled then fpsCounterToggleFn(true) end
+end
+
+do
+    -- 存檔區塊加在主選單最下方
+    local saveSectionTitle = Instance.new("TextLabel")
+    saveSectionTitle.Size = UDim2.new(1, -30, 0, 24)
+    saveSectionTitle.Position = UDim2.fromOffset(15, 540)
+    saveSectionTitle.BackgroundTransparency = 1
+    saveSectionTitle.Text = "── 設定存檔 ──"
+    saveSectionTitle.TextColor3 = Color3.fromRGB(200, 210, 230)
+    saveSectionTitle.TextSize = 13
+    saveSectionTitle.Font = Enum.Font.GothamBold
+    saveSectionTitle.ZIndex = 1100
+    saveSectionTitle.Parent = mainScroll
+
+    local presetNameBox = Instance.new("TextBox")
+    presetNameBox.Size = UDim2.new(1, -30, 0, 38)
+    presetNameBox.Position = UDim2.fromOffset(15, 568)
+    presetNameBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
+    presetNameBox.TextColor3 = Color3.fromRGB(240, 240, 240)
+    presetNameBox.TextSize = 15
+    presetNameBox.Font = Enum.Font.Gotham
+    presetNameBox.PlaceholderText = "輸入存檔名稱"
+    presetNameBox.Text = ""
+    presetNameBox.ZIndex = 1100
+    presetNameBox.Parent = mainScroll
+    presetNameBox.ClearTextOnFocus = false
+    local pnbc = Instance.new("UICorner"); pnbc.CornerRadius = UDim.new(0, 10); pnbc.Parent = presetNameBox
+
+    local presetSaveBtn = createBtn(mainScroll, 614, "存檔", Color3.fromRGB(70, 120, 90), 38)
+    local presetViewBtn = createBtn(mainScroll, 658, "查看存檔 ▼", Color3.fromRGB(70, 90, 130), 38)
+
+    presetSaveListFrame = Instance.new("Frame")
+    presetSaveListFrame.Name = "PresetList"
+    presetSaveListFrame.Size = UDim2.new(1, -30, 0, 200)
+    presetSaveListFrame.Position = UDim2.fromOffset(15, 702)
+    presetSaveListFrame.BackgroundTransparency = 1
+    presetSaveListFrame.Visible = false
+    presetSaveListFrame.ZIndex = 1100
+    presetSaveListFrame.Parent = mainScroll
+
+    local function refreshPresetList()
+        for _, child in ipairs(presetSaveListFrame:GetChildren()) do
+            if child:IsA("Frame") or child:IsA("TextLabel") then child:Destroy() end
+        end
+        local y = 0
+        for i, save in ipairs(presetSaves) do
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, 0, 0, 36)
+            row.Position = UDim2.fromOffset(0, y)
+            row.BackgroundColor3 = Color3.fromRGB(50, 60, 85)
+            row.BorderSizePixel = 0
+            row.ZIndex = 1100
+            row.Parent = presetSaveListFrame
+            local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(0, 8); rc.Parent = row
+
+            local nameLabel = Instance.new("TextLabel")
+            nameLabel.Size = UDim2.new(1, -130, 1, 0)
+            nameLabel.Position = UDim2.fromOffset(10, 0)
+            nameLabel.BackgroundTransparency = 1
+            nameLabel.Text = save.name
+            nameLabel.TextColor3 = Color3.fromRGB(230, 235, 245)
+            nameLabel.TextSize = 13
+            nameLabel.Font = Enum.Font.GothamBold
+            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
+            nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            nameLabel.ZIndex = 1150
+            nameLabel.Parent = row
+
+            local loadBtn = Instance.new("TextButton")
+            loadBtn.Size = UDim2.fromOffset(56, 30)
+            loadBtn.Position = UDim2.new(1, -124, 0.5, -15)
+            loadBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 90)
+            loadBtn.Text = "載入"
+            loadBtn.TextColor3 = Color3.fromRGB(240, 240, 240)
+            loadBtn.TextSize = 12
+            loadBtn.Font = Enum.Font.GothamBold
+            loadBtn.ZIndex = 1150
+            loadBtn.Parent = row
+            local lbc = Instance.new("UICorner"); lbc.CornerRadius = UDim.new(0, 6); lbc.Parent = loadBtn
+            loadBtn.Activated:Connect(function()
+                playClick()
+                applySnapshot(save.data)
+                showToast("已載入存檔：" .. save.name)
+            end)
+
+            local delBtn = Instance.new("TextButton")
+            delBtn.Size = UDim2.fromOffset(56, 30)
+            delBtn.Position = UDim2.new(1, -64, 0.5, -15)
+            delBtn.BackgroundColor3 = Color3.fromRGB(150, 60, 60)
+            delBtn.Text = "刪除"
+            delBtn.TextColor3 = Color3.fromRGB(255, 220, 220)
+            delBtn.TextSize = 12
+            delBtn.Font = Enum.Font.GothamBold
+            delBtn.ZIndex = 1150
+            delBtn.Parent = row
+            local dbc = Instance.new("UICorner"); dbc.CornerRadius = UDim.new(0, 6); dbc.Parent = delBtn
+            delBtn.Activated:Connect(function()
+                playClick()
+                table.remove(presetSaves, i)
+                savePresetData()
+                refreshPresetList()
+                showToast("已刪除存檔：" .. save.name)
+            end)
+
+            y = y + 40
+        end
+        if #presetSaves == 0 then
+            local empty = Instance.new("TextLabel")
+            empty.Size = UDim2.new(1, 0, 0, 30)
+            empty.Position = UDim2.fromOffset(0, 0)
+            empty.BackgroundTransparency = 1
+            empty.Text = "（目前沒有存檔）"
+            empty.TextColor3 = Color3.fromRGB(160, 170, 190)
+            empty.TextSize = 13
+            empty.Font = Enum.Font.Gotham
+            empty.ZIndex = 1150
+            empty.Parent = presetSaveListFrame
+        end
+    end
+
+    presetSaveBtn.Activated:Connect(function()
+        local name = presetNameBox.Text
+        if name == "" then showToast("請先輸入存檔名稱"); return end
+        for _, s in ipairs(presetSaves) do
+            if s.name == name then
+                showToast("錯誤：此名字已重複")
+                return
+            end
+        end
+        if #presetSaves >= 4 then
+            showToast("已達上限，請先刪除一個")
+            return
+        end
+        table.insert(presetSaves, {name = name, data = getCurrentSnapshot()})
+        savePresetData()
+        refreshPresetList()
+        presetNameBox.Text = ""
+        showToast("已存檔：" .. name)
+    end)
+
+    presetViewBtn.Activated:Connect(function()
+        presetExpanded = not presetExpanded
+        presetSaveListFrame.Visible = presetExpanded
+        presetViewBtn.Text = presetExpanded and "查看存檔 ▲" or "查看存檔 ▼"
+    end)
+
+    loadPresetData()
+    refreshPresetList()
+end
+
 -- ==================== 收尾 ====================
 allMenus = { main, timeMenu, skyMenu, perfMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
 UIS.InputBegan:Connect(function(input, processed)
@@ -1936,4 +2222,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：敵克製作 v2.2版本已載入（打雷修復 + 關閉打雷按鈕）")
+print("湊企鵝mod：敵克製作 v2.3版本已載入（新增存檔系統）")
