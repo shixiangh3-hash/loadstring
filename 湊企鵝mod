@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜敵克製作 v2.1版本
+-- 湊企鵝mod｜敵克製作 v2.2版本
 --====================================================
 
 local Players = game:GetService("Players")
@@ -897,8 +897,8 @@ do
     end)
 end
 
--- ==================== 天氣頁面 ====================
-local weatherMenu, rainButton, sunnyButton, snowButton, thunderButton, weatherDone
+-- ==================== 天氣頁面（含修復） ====================
+local weatherMenu, rainButton, sunnyButton, snowButton, thunderButton, thunderOffButton, weatherDone
 local rainAmount = 0.55
 local snowAmount = 0.55
 local rainEnabled = false
@@ -906,8 +906,8 @@ local snowEnabled = false
 local thunderEnabled = false
 local rainFolder, rainConnection, rainDrops = nil, nil, {}
 local snowFolder, snowConnection, snowFlakes = nil, nil, {}
-local thunderConnection = nil
 local thunderGui = nil
+local thunderTask = nil
 
 local function stopRain()
     if rainConnection then rainConnection:Disconnect(); rainConnection = nil end
@@ -920,9 +920,10 @@ local function stopSnow()
     table.clear(snowFlakes); snowEnabled = false
 end
 local function stopThunder()
-    if thunderConnection then thunderConnection:Disconnect(); thunderConnection = nil end
-    if thunderGui then thunderGui:Destroy(); thunderGui = nil end
     thunderEnabled = false
+    if thunderGui then thunderGui:Destroy(); thunderGui = nil end
+    thunderTask = nil
+    if thunderButton then thunderButton.Text = "閃電打雷" end
 end
 local function rainCount() return math.floor(100 + rainAmount * 900) end
 local function resizeRain()
@@ -1013,7 +1014,6 @@ local function startThunder()
     end
     if thunderEnabled then
         stopThunder()
-        thunderButton.Text = "閃電打雷"
         showToast("閃電已關閉")
         return
     end
@@ -1029,18 +1029,31 @@ local function startThunder()
     flash.Size = UDim2.fromScale(1, 1)
     flash.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
     flash.BackgroundTransparency = 1
+    flash.BorderSizePixel = 0
     flash.ZIndex = 999999
     flash.Parent = thunderGui
-    thunderConnection = task.spawn(function()
+    thunderTask = task.spawn(function()
         while thunderEnabled do
             task.wait(math.random(5, 12))
             if not thunderEnabled then break end
+            if not flash or not flash.Parent then break end
+
             for i = 1, math.random(2, 3) do
-                flash.BackgroundTransparency = 0.2
-                task.wait(0.05)
-                flash.BackgroundTransparency = 0.85
-                task.wait(0.08)
+                if not thunderEnabled then break end
+                if flash and flash.Parent then
+                    flash.BackgroundTransparency = 0.2
+                    task.wait(0.05)
+                    flash.BackgroundTransparency = 0.85
+                    task.wait(0.08)
+                end
             end
+
+            if flash and flash.Parent then
+                flash.BackgroundTransparency = 1
+            end
+
+            if not thunderEnabled then break end
+
             pcall(function()
                 local s = Instance.new("Sound")
                 s.SoundId = THUNDER_SOUND
@@ -1051,21 +1064,25 @@ local function startThunder()
                 task.delay(5, function() s:Destroy() end)
             end)
         end
+        if flash and flash.Parent then
+            flash.BackgroundTransparency = 1
+        end
     end)
     showToast("閃電已開啟")
 end
 
 do
-    weatherMenu = createMenu(320, 400, 440)
+    weatherMenu = createMenu(320, 400, 490)
     local weatherScroll = weatherMenu:FindFirstChild("Scroll")
     createTitle(weatherScroll, "當前天氣")
     rainButton = createBtn(weatherScroll, 52, "下雨", Color3.fromRGB(75, 90, 115), 38)
     sunnyButton = createBtn(weatherScroll, 98, "晴天", Color3.fromRGB(75, 125, 105), 38)
     snowButton = createBtn(weatherScroll, 144, "下雪", Color3.fromRGB(130, 150, 180), 38)
     thunderButton = createBtn(weatherScroll, 190, "閃電打雷", Color3.fromRGB(180, 160, 60), 38)
+    thunderOffButton = createBtn(weatherScroll, 236, "關閉打雷", Color3.fromRGB(110, 70, 70), 38)
     local rainLabel = Instance.new("TextLabel")
     rainLabel.Size = UDim2.new(1, -30, 0, 24)
-    rainLabel.Position = UDim2.fromOffset(15, 238)
+    rainLabel.Position = UDim2.fromOffset(15, 284)
     rainLabel.BackgroundTransparency = 1
     rainLabel.Text = "雨量：中"
     rainLabel.TextColor3 = Color3.fromRGB(210, 220, 235)
@@ -1075,7 +1092,7 @@ do
     rainLabel.Parent = weatherScroll
     local rainTrack = Instance.new("Frame")
     rainTrack.Size = UDim2.new(1, -40, 0, 8)
-    rainTrack.Position = UDim2.fromOffset(20, 271)
+    rainTrack.Position = UDim2.fromOffset(20, 317)
     rainTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
     rainTrack.ZIndex = 1100
     rainTrack.Parent = weatherScroll
@@ -1090,7 +1107,7 @@ do
     local rkc = Instance.new("UICorner"); rkc.CornerRadius = UDim.new(0, 20); rkc.Parent = rainKnob
     local snowLabel = Instance.new("TextLabel")
     snowLabel.Size = UDim2.new(1, -30, 0, 24)
-    snowLabel.Position = UDim2.fromOffset(15, 286)
+    snowLabel.Position = UDim2.fromOffset(15, 332)
     snowLabel.BackgroundTransparency = 1
     snowLabel.Text = "雪量：中"
     snowLabel.TextColor3 = Color3.fromRGB(220, 235, 250)
@@ -1100,7 +1117,7 @@ do
     snowLabel.Parent = weatherScroll
     local snowTrack = Instance.new("Frame")
     snowTrack.Size = UDim2.new(1, -40, 0, 8)
-    snowTrack.Position = UDim2.fromOffset(20, 319)
+    snowTrack.Position = UDim2.fromOffset(20, 365)
     snowTrack.BackgroundColor3 = Color3.fromRGB(120, 140, 170)
     snowTrack.ZIndex = 1100
     snowTrack.Parent = weatherScroll
@@ -1113,7 +1130,7 @@ do
     snowKnob.ZIndex = 1200
     snowKnob.Parent = snowTrack
     local skc = Instance.new("UICorner"); skc.CornerRadius = UDim.new(0, 20); skc.Parent = snowKnob
-    weatherDone = createBtn(weatherScroll, 350, "完成", Color3.fromRGB(92, 65, 76), 38)
+    weatherDone = createBtn(weatherScroll, 396, "完成", Color3.fromRGB(92, 65, 76), 38)
     weatherButton.Activated:Connect(function() closeAllMenus(); weatherMenu.Visible = true end)
     weatherDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
 
@@ -1126,6 +1143,14 @@ do
     end)
     snowButton.Activated:Connect(function() startSnow(); closeAllMenus(); main.Visible = true end)
     thunderButton.Activated:Connect(function() startThunder() end)
+    thunderOffButton.Activated:Connect(function()
+        if thunderEnabled then
+            stopThunder()
+            showToast("閃電已關閉")
+        else
+            showToast("目前沒有打雷")
+        end
+    end)
 
     local rainDragging = false
     local snowDragging = false
@@ -1911,4 +1936,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：敵克製作 v2.1版本已載入（天空守護 + 效能監控 + 遊戲名稱修正）")
+print("湊企鵝mod：敵克製作 v2.2版本已載入（打雷修復 + 關閉打雷按鈕）")
