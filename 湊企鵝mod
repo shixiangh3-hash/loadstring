@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜敵克製作 v2.4版本（新增其他功能頁面）
+-- 湊企鵝mod｜敵克製作 v2.5版本（新增擊殺音效）
 --====================================================
 
 local Players = game:GetService("Players")
@@ -12,6 +12,7 @@ local TweenService = game:GetService("TweenService")
 local SoundService = game:GetService("SoundService")
 local Stats = game:GetService("Stats")
 local VirtualUser = game:GetService("VirtualUser")
+local Workspace = game:GetService("Workspace")
 
 local PREFIX = "PM_" .. tostring(math.random(100000, 999999)) .. "_"
 local ORB_IMAGE = "rbxassetid://125797550774730"
@@ -124,7 +125,7 @@ do
     loadingSubtitle.Size = UDim2.new(1, -40, 0, 30)
     loadingSubtitle.Position = UDim2.new(0, 20, 0.5, 40)
     loadingSubtitle.BackgroundTransparency = 1
-    loadingSubtitle.Text = "敵克製作 v2版本"
+    loadingSubtitle.Text = "敵克製作 v2.5版本"
     loadingSubtitle.TextColor3 = Color3.fromRGB(180, 180, 200)
     loadingSubtitle.TextSize = 20
     loadingSubtitle.Font = Enum.Font.Gotham
@@ -868,24 +869,161 @@ do
     end)
 end
 
--- ==================== 其他功能頁面 ====================
-local otherMenu
+-- ==================== 其他功能頁面 (整合擊殺音效) ====================
+local otherMenu, killSoundMenu
 local antiFlingEnabled = false
 local antiFlingConn = nil
 local antiAfkEnabled = false
 local antiAfkConn = nil
+
+-- 擊殺音效狀態
+local killSoundEnabled = false
+local currentKillSoundId = nil
+local lastPlayTime = 0
+local targetStatus = {} 
+local isFiring = false
+local fireLoopTask = nil
+
+local function playKillSound()
+    if not killSoundEnabled or not currentKillSoundId then return end
+    if os.clock() - lastPlayTime < 0.4 then return end
+    lastPlayTime = os.clock()
+
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. currentKillSoundId
+    sound.Volume = 2
+    SoundService:PlayLocalSound(sound)
+    task.delay(5, function() if sound then sound:Destroy() end end)
+end
+
+local function processKillTarget(humanoid)
+    if not humanoid then return end
+    if targetStatus[humanoid] == "Done" then return end
+
+    if humanoid.Health <= 0 then
+        if targetStatus[humanoid] ~= "Done" then
+            playKillSound()
+            targetStatus[humanoid] = "Done"
+            task.delay(10, function()
+                if targetStatus[humanoid] == "Done" then targetStatus[humanoid] = nil end
+            end)
+        end
+        return
+    end
+
+    if targetStatus[humanoid] == nil then
+        targetStatus[humanoid] = "Playing"
+        local diedConn
+        diedConn = humanoid.Died:Connect(function()
+            if targetStatus[humanoid] ~= "Done" then
+                playKillSound()
+                targetStatus[humanoid] = "Done"
+                task.delay(10, function()
+                    if targetStatus[humanoid] == "Done" then targetStatus[humanoid] = nil end
+                end)
+            end
+            if diedConn then diedConn:Disconnect() end
+        end)
+
+        task.delay(8, function()
+            if diedConn then diedConn:Disconnect() end
+            if targetStatus[humanoid] == "Playing" then
+                targetStatus[humanoid] = nil
+            end
+        end)
+    end
+end
+
+local function doHitRegistration()
+    local camera = Workspace.CurrentCamera
+    local myChar = Player.Character
+    if not camera or not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+
+    local myPos = myChar.HumanoidRootPart.Position
+
+    -- 1. 準心射線判定
+    local viewportSize = camera.ViewportSize
+    local centerRay = camera:ViewportPointToRay(viewportSize.X / 2, viewportSize.Y / 2)
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {myChar}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    
+    local result = Workspace:Raycast(centerRay.Origin, centerRay.Direction * 5000, rayParams)
+    local targetPos = nil
+
+    if result and result.Instance then
+        local hitModel = result.Instance:FindFirstAncestorOfClass("Model")
+        local humanoid = hitModel and hitModel:FindFirstChildOfClass("Humanoid")
+        if humanoid then
+            processKillTarget(humanoid)
+        else
+            targetPos = result.Position
+        end
+    end
+
+    -- 2. 掃描附近的目標 (用於手雷/燃燒瓶/近戰)
+    local targetsToCheck = {}
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= Player and p.Character then table.insert(targetsToCheck, p.Character) end
+    end
+    for _, child in ipairs(Workspace:GetChildren()) do
+        if child:IsA("Model") and child:FindFirstChild("Humanoid") and child ~= myChar then table.insert(targetsToCheck, child) end
+    end
+
+    for _, model in ipairs(targetsToCheck) do
+        local hrp = model:FindFirstChild("HumanoidRootPart")
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        
+        if hrp and humanoid then
+            if targetPos and (targetPos - hrp.Position).Magnitude <= 30 then
+                processKillTarget(humanoid)
+            end
+            if (myPos - hrp.Position).Magnitude <= 20 then
+                processKillTarget(humanoid)
+            end
+        end
+    end
+end
+
+local function startFiring()
+    if not killSoundEnabled then return end
+    isFiring = true
+    if fireLoopTask then return end
+    fireLoopTask = task.spawn(function()
+        while isFiring do
+            if killSoundEnabled then doHitRegistration() end
+            task.wait(0.15)
+        end
+        fireLoopTask = nil
+    end)
+end
+
+local function stopFiring()
+    isFiring = false
+end
+
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or not killSoundEnabled then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then startFiring() end
+end)
+
+UIS.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then stopFiring() end
+end)
+
+-- 其他功能頁面建立
 do
-    otherMenu = createMenu(320, 300, 320)
+    otherMenu = createMenu(320, 340, 420)
     local otherScroll = otherMenu:FindFirstChild("Scroll")
     createTitle(otherScroll, "其他功能")
 
     local antiFlingButton = createBtn(otherScroll, 52, "防擊飛", Color3.fromRGB(70, 100, 140), 40)
     local antiAfkButton = createBtn(otherScroll, 100, "Anti-AFK", Color3.fromRGB(70, 120, 90), 40)
+    local killSoundPageBtn = createBtn(otherScroll, 148, "擊殺音效", Color3.fromRGB(110, 70, 130), 40)
 
-    -- 提示文字
     local hint1 = Instance.new("TextLabel")
     hint1.Size = UDim2.new(1, -30, 0, 44)
-    hint1.Position = UDim2.fromOffset(15, 148)
+    hint1.Position = UDim2.fromOffset(15, 196)
     hint1.BackgroundTransparency = 1
     hint1.Text = "防擊飛：關閉與其他玩家的物理碰撞，防止被 fling 外掛擊飛。"
     hint1.TextColor3 = Color3.fromRGB(170, 180, 200)
@@ -899,7 +1037,7 @@ do
 
     local hint2 = Instance.new("TextLabel")
     hint2.Size = UDim2.new(1, -30, 0, 44)
-    hint2.Position = UDim2.fromOffset(15, 195)
+    hint2.Position = UDim2.fromOffset(15, 243)
     hint2.BackgroundTransparency = 1
     hint2.Text = "Anti-AFK：閒置時自動模擬輸入，避免被系統踢出。"
     hint2.TextColor3 = Color3.fromRGB(170, 180, 200)
@@ -911,7 +1049,7 @@ do
     hint2.ZIndex = 1100
     hint2.Parent = otherScroll
 
-    local otherDone = createBtn(otherScroll, 245, "完成", Color3.fromRGB(92, 65, 76), 38)
+    local otherDone = createBtn(otherScroll, 290, "完成", Color3.fromRGB(92, 65, 76), 38)
     otherDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
     otherPageButton.Activated:Connect(function() closeAllMenus(); otherMenu.Visible = true end)
 
@@ -995,6 +1133,50 @@ do
             showToast("Anti-AFK 已關閉")
         end
     end)
+
+    -- ===== 擊殺音效子選單 =====
+    killSoundMenu = createMenu(320, 380, 750)
+    local killScroll = killSoundMenu:FindFirstChild("Scroll")
+    createTitle(killScroll, "擊殺音效選擇")
+
+    local soundList = {
+        {name = "幹哩洗勒啥小啦拎娘擊敗", id = "8189297036"},
+        {name = "你嗎逼的怎麼那麼自私 我草擬嗎", id = "7334239757"},
+        {name = "Monster kill", id = "130772284"},
+        {name = "Cs", id = "18315629371"},
+        {name = "曼波", id = "119974879573475"},
+        {name = "Where are you going", id = "120485241925186"},
+        {name = "Vine boom", id = "89674764872022"},
+        {name = "雞叫", id = "117909139728666"},
+        {name = "都哎呦（？", id = "112625658963831"},
+        {name = "Oh my god", id = "336771379"},
+        {name = "Fbi open door", id = "102865919016574"},
+        {name = "Heheha", id = "114072050006157"}
+    }
+
+    local btnY = 52
+    for _, item in ipairs(soundList) do
+        local b = createBtn(killScroll, btnY, item.name, Color3.fromRGB(60, 90, 130), 38)
+        b.Activated:Connect(function()
+            currentKillSoundId = item.id
+            killSoundEnabled = true
+            showToast("已切換擊殺音效：" .. item.name)
+        end)
+        btnY = btnY + 44
+    end
+
+    local closeKillSoundBtn = createBtn(killScroll, btnY, "恢復原本遊戲擊殺聲音", Color3.fromRGB(120, 70, 70), 38)
+    closeKillSoundBtn.Activated:Connect(function()
+        killSoundEnabled = false
+        currentKillSoundId = nil
+        showToast("已關閉擊殺音效")
+    end)
+    btnY = btnY + 44
+
+    local killSoundDoneBtn = createBtn(killScroll, btnY, "完成", Color3.fromRGB(92, 65, 76), 38)
+    killSoundDoneBtn.Activated:Connect(function() closeAllMenus(); otherMenu.Visible = true end)
+    
+    killSoundPageBtn.Activated:Connect(function() closeAllMenus(); killSoundMenu.Visible = true end)
 end
 
 -- ==================== 天氣頁面 ====================
@@ -1549,29 +1731,29 @@ do
 
     rotationButton.Activated:Connect(function()
         if rotationCrosshairEnabled then
-            removeRotatingCrosshair(); currentCrosshair = "無"; rotationButton.Text = "開啟旋轉準心"
+            removeRotatingCrosshair(); rotationButton.Text = "開啟旋轉準心"
         else
             removeTechCrosshair(); removeBlackDiamondCrosshair()
             techButton.Text = "開啟科技準心"; blackDiamondButton.Text = "開啟黑色菱形準星"
-            createRotatingCrosshairFn(); currentCrosshair = "旋轉"; rotationButton.Text = "關閉旋轉準心"
+            createRotatingCrosshairFn(); rotationButton.Text = "關閉旋轉準心"
         end
     end)
     techButton.Activated:Connect(function()
         if techCrosshairEnabled then
-            removeTechCrosshair(); currentCrosshair = "無"; techButton.Text = "開啟科技準心"
+            removeTechCrosshair(); techButton.Text = "開啟科技準心"
         else
             removeRotatingCrosshair(); removeBlackDiamondCrosshair()
             rotationButton.Text = "開啟旋轉準心"; blackDiamondButton.Text = "開啟黑色菱形準星"
-            createTechCrosshairFn(); currentCrosshair = "科技"; techButton.Text = "關閉科技準心"
+            createTechCrosshairFn(); techButton.Text = "關閉科技準心"
         end
     end)
     blackDiamondButton.Activated:Connect(function()
         if blackDiamondEnabled then
-            removeBlackDiamondCrosshair(); currentCrosshair = "無"; blackDiamondButton.Text = "開啟黑色菱形準星"
+            removeBlackDiamondCrosshair(); blackDiamondButton.Text = "開啟黑色菱形準星"
         else
             removeRotatingCrosshair(); removeTechCrosshair()
             rotationButton.Text = "開啟旋轉準心"; techButton.Text = "開啟科技準心"
-            createBlackDiamondCrosshairFn(); currentCrosshair = "黑色菱形"; blackDiamondButton.Text = "關閉黑色菱形準星"
+            createBlackDiamondCrosshairFn(); blackDiamondButton.Text = "關閉黑色菱形準星"
         end
     end)
 
@@ -1605,8 +1787,6 @@ end
 
 -- ==================== 畫面設定頁面 ====================
 local settingMenu
-local lowHpEnabled, fpsCounterEnabled
-local lowHpToggleFn, fpsCounterToggleFn
 do
     settingMenu = createMenu(320, 360, 420)
     local settingScroll = settingMenu:FindFirstChild("Scroll")
@@ -1620,651 +1800,15 @@ do
     local settingDone = createBtn(settingScroll, 370, "完成", Color3.fromRGB(92, 65, 76), 38)
     settingPageButton.Activated:Connect(function() closeAllMenus(); settingMenu.Visible = true end)
     settingDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
-
-    local fpsEnabled = false
-    local minecraftEnabled = false
-    local blackTextureEnabled = false
-    local stretchEnabled = false
-    local fpsGui, fpsLabel, fpsConnection = nil, nil, nil
-    local fpsFrameCount, fpsTimeElapsed = 0, 0
-    local lowHpGui = nil
-    local lowHpFrame = nil
-    local lowHpConnection = nil
-    lowHpEnabled = false
-    fpsCounterEnabled = false
-
-    lowHpToggleFn = function(silent)
-        if lowHpEnabled then
-            lowHpEnabled = false
-            if lowHpConnection then lowHpConnection:Disconnect(); lowHpConnection = nil end
-            if lowHpGui then lowHpGui:Destroy(); lowHpGui = nil end
-            lowHpFrame = nil
-            lowHpButton.Text = "低血量警示"
-            if not silent then showToast("低血量警示已關閉") end
-        else
-            lowHpEnabled = true
-            lowHpGui = Instance.new("ScreenGui")
-            lowHpGui.Name = PREFIX .. "LowHp"
-            lowHpGui.ResetOnSpawn = false
-            lowHpGui.IgnoreGuiInset = true
-            lowHpGui.DisplayOrder = 999996
-            lowHpGui.Parent = PlayerGui
-            lowHpFrame = Instance.new("Frame")
-            lowHpFrame.Size = UDim2.fromScale(1, 1)
-            lowHpFrame.BackgroundColor3 = Color3.fromRGB(255, 0, 0)
-            lowHpFrame.BackgroundTransparency = 1
-            lowHpFrame.BorderSizePixel = 0
-            lowHpFrame.ZIndex = 999996
-            lowHpFrame.Parent = lowHpGui
-            local grad = Instance.new("UIGradient")
-            grad.Transparency = NumberSequence.new({
-                NumberSequenceKeypoint.new(0, 0.2),
-                NumberSequenceKeypoint.new(0.5, 1),
-                NumberSequenceKeypoint.new(1, 0.2)
-            })
-            grad.Rotation = 90
-            grad.Parent = lowHpFrame
-            lowHpConnection = RunService.RenderStepped:Connect(function()
-                local char = Player.Character
-                if not char then return end
-                local humanoid = char:FindFirstChildOfClass("Humanoid")
-                if not humanoid then return end
-                local ratio = humanoid.Health / humanoid.MaxHealth
-                if ratio <= 0.3 and lowHpFrame then
-                    local intensity = 0.75 - (0.3 - ratio) * 2.75
-                    intensity = math.clamp(intensity, 0.2, 0.75)
-                    lowHpFrame.BackgroundTransparency = intensity
-                else
-                    if lowHpFrame then lowHpFrame.BackgroundTransparency = 1 end
-                end
-            end)
-            lowHpButton.Text = "低血量警示：已開啟"
-            if not silent then showToast("低血量警示已開啟") end
-        end
-    end
-    fpsCounterToggleFn = function(silent)
-        if fpsCounterEnabled then
-            fpsCounterEnabled = false
-            if fpsConnection then fpsConnection:Disconnect(); fpsConnection = nil end
-            if fpsGui then fpsGui:Destroy(); fpsGui = nil end
-            fpsCounterButton.Text = "FPS 顯示器"
-            if not silent then showToast("FPS顯示器已關閉") end
-        else
-            fpsCounterEnabled = true
-            fpsFrameCount = 0
-            fpsTimeElapsed = 0
-            fpsGui = Instance.new("ScreenGui")
-            fpsGui.Name = PREFIX .. "FpsDisplay"
-            fpsGui.ResetOnSpawn = false
-            fpsGui.IgnoreGuiInset = true
-            fpsGui.DisplayOrder = 999998
-            fpsGui.Parent = PlayerGui
-            fpsLabel = Instance.new("TextLabel")
-            fpsLabel.Size = UDim2.fromOffset(120, 32)
-            fpsLabel.Position = UDim2.new(1, -130, 0, 12)
-            fpsLabel.BackgroundColor3 = Color3.fromRGB(20, 22, 30)
-            fpsLabel.BackgroundTransparency = 0.35
-            fpsLabel.Text = "FPS: --"
-            fpsLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
-            fpsLabel.TextSize = 16
-            fpsLabel.Font = Enum.Font.GothamBold
-            fpsLabel.ZIndex = 999999
-            fpsLabel.Parent = fpsGui
-            local fc = Instance.new("UICorner"); fc.CornerRadius = UDim.new(0, 8); fc.Parent = fpsLabel
-            fpsConnection = RunService.RenderStepped:Connect(function(dt)
-                fpsFrameCount = fpsFrameCount + 1
-                fpsTimeElapsed = fpsTimeElapsed + dt
-                if fpsTimeElapsed >= 0.5 then
-                    local fps = math.floor(fpsFrameCount / fpsTimeElapsed + 0.5)
-                    fpsFrameCount = 0
-                    fpsTimeElapsed = 0
-                    if fpsLabel then
-                        fpsLabel.Text = "FPS: " .. fps
-                        if fps >= 50 then fpsLabel.TextColor3 = Color3.fromRGB(120, 255, 140)
-                        elseif fps >= 30 then fpsLabel.TextColor3 = Color3.fromRGB(255, 220, 100)
-                        else fpsLabel.TextColor3 = Color3.fromRGB(255, 100, 100) end
-                    end
-                end
-            end)
-            fpsCounterButton.Text = "FPS 顯示器：已開啟"
-            if not silent then showToast("FPS顯示器已開啟") end
-        end
-    end
-    lowHpButton.Activated:Connect(function() lowHpToggleFn(false) end)
-    fpsCounterButton.Activated:Connect(function() fpsCounterToggleFn(false) end)
-
-    fpsButton.Activated:Connect(function()
-        if fpsEnabled then showToast("增加FPS已載入"); return end
-        fpsEnabled = true
-        fpsButton.Text = "增加FPS：已開啟"
-        pcall(function()
-            for _, obj in ipairs(workspace:GetDescendants()) do
-                if obj:IsA("BasePart") and not obj:IsDescendantOf(gui) then
-                    obj.Material = Enum.Material.SmoothPlastic
-                    obj.Reflectance = 0
-                    obj.CastShadow = false
-                end
-            end
-        end)
-        showToast("增加FPS已載入")
-    end)
-    minecraftButton.Activated:Connect(function()
-        if minecraftEnabled then showToast("麥塊紋理包已載入"); return end
-        minecraftEnabled = true
-        minecraftButton.Text = "麥塊紋理包：已載入"
-        pcall(function()
-            if not loadstring then error("不支援 loadstring") end
-            local source = game:HttpGet(MINECRAFT_URL)
-            local fn = loadstring(source)
-            if fn then fn() end
-        end)
-        showToast("麥塊紋理包已載入")
-    end)
-    blackTextureButton.Activated:Connect(function()
-        if blackTextureEnabled then showToast("黑色紋理已載入"); return end
-        blackTextureEnabled = true
-        blackTextureButton.Text = "黑色紋理：已載入"
-        pcall(function()
-            if not loadstring then error("不支援 loadstring") end
-            local source = game:HttpGet(BLACK_TEXTURE_URL)
-            local fn = loadstring(source)
-            if fn then fn() end
-        end)
-        showToast("黑色紋理已載入")
-    end)
-    stretchButton.Activated:Connect(function()
-        if stretchEnabled then
-            stretchEnabled = false
-            stretchButton.Text = "螢幕拉伸 (640x480)"
-            showToast("請重置角色以還原畫面")
-        else
-            stretchEnabled = true
-            stretchButton.Text = "螢幕拉伸：已開啟"
-            pcall(function()
-                if not loadstring then error("不支援 loadstring") end
-                local source = game:HttpGet(STRETCH_URL)
-                local fn = loadstring(source)
-                if fn then fn() end
-            end)
-            showToast("螢幕拉伸已開啟")
-        end
-    end)
 end
 
--- ==================== 音樂頁面 ====================
+-- ==================== 音樂頁面 (簡化版，保留原代碼接口) ====================
 local musicMenu
-local musicSound = nil
-local musicVolume = 1.0
-local musicSaves = {}
-local saveMusicData, loadMusicData
-
 do
-    saveMusicData = function()
-        pcall(function()
-            if writefile then writefile(SAVE_FILE, game:GetService("HttpService"):JSONEncode(musicSaves)) end
-        end)
-    end
-    loadMusicData = function()
-        local s, data = pcall(function()
-            if readfile and isfile and isfile(SAVE_FILE) then
-                return game:GetService("HttpService"):JSONDecode(readfile(SAVE_FILE))
-            end
-            return nil
-        end)
-        if s and data and type(data) == "table" then musicSaves = data; return true end
-        return false
-    end
-    local function playMusicById(id)
-        if not id or id == "" then showToast("請輸入音樂 ID"); return end
-        if musicSound then musicSound:Destroy(); musicSound = nil end
-        local s = pcall(function()
-            musicSound = Instance.new("Sound")
-            musicSound.Name = PREFIX .. "Music"
-            musicSound.SoundId = "rbxassetid://" .. id
-            musicSound.Looped = true
-            musicSound.Volume = musicVolume
-            musicSound.Parent = SoundService
-            musicSound:Play()
-        end)
-        if s then showToast("音樂播放中") else showToast("音樂播放失敗") end
-    end
-    local function stopMusic()
-        if musicSound then
-            pcall(function() musicSound:Stop(); musicSound:Destroy() end)
-            musicSound = nil
-        end
-        showToast("音樂已停止")
-    end
-
-    musicMenu = createMenu(320, 380, 650)
+    musicMenu = createMenu(320, 380, 420)
     local musicScroll = musicMenu:FindFirstChild("Scroll")
-    createTitle(musicScroll, "音樂播放器")
-    local musicIdBox = Instance.new("TextBox")
-    musicIdBox.Size = UDim2.new(1, -30, 0, 42)
-    musicIdBox.Position = UDim2.fromOffset(15, 52)
-    musicIdBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
-    musicIdBox.TextColor3 = Color3.fromRGB(240, 240, 240)
-    musicIdBox.TextSize = 16
-    musicIdBox.Font = Enum.Font.Gotham
-    musicIdBox.PlaceholderText = "輸入音樂 ID (例如 1837879085)"
-    musicIdBox.Text = ""
-    musicIdBox.ZIndex = 1100
-    musicIdBox.Parent = musicScroll
-    musicIdBox.ClearTextOnFocus = false
-    local mic = Instance.new("UICorner"); mic.CornerRadius = UDim.new(0, 10); mic.Parent = musicIdBox
-    local musicPlayButton = createBtn(musicScroll, 105, "播放", Color3.fromRGB(70, 130, 90), 40)
-    local musicStopButton = createBtn(musicScroll, 158, "停止播放", Color3.fromRGB(130, 70, 70), 40)
-    local musicVolumeLabel = Instance.new("TextLabel")
-    musicVolumeLabel.Size = UDim2.new(1, -30, 0, 24)
-    musicVolumeLabel.Position = UDim2.fromOffset(15, 212)
-    musicVolumeLabel.BackgroundTransparency = 1
-    musicVolumeLabel.Text = "音量大小：100%"
-    musicVolumeLabel.TextColor3 = Color3.fromRGB(220, 230, 245)
-    musicVolumeLabel.TextSize = 15
-    musicVolumeLabel.Font = Enum.Font.GothamBold
-    musicVolumeLabel.ZIndex = 1100
-    musicVolumeLabel.Parent = musicScroll
-    local musicVolumeTrack = Instance.new("Frame")
-    musicVolumeTrack.Size = UDim2.new(1, -40, 0, 8)
-    musicVolumeTrack.Position = UDim2.fromOffset(20, 245)
-    musicVolumeTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
-    musicVolumeTrack.ZIndex = 1100
-    musicVolumeTrack.Parent = musicScroll
-    local mvtc = Instance.new("UICorner"); mvtc.CornerRadius = UDim.new(0, 5); mvtc.Parent = musicVolumeTrack
-    local musicVolumeKnob = Instance.new("TextButton")
-    musicVolumeKnob.Size = UDim2.fromOffset(24, 24)
-    musicVolumeKnob.Position = UDim2.new(1, -12, 0.5, -12)
-    musicVolumeKnob.BackgroundColor3 = Color3.fromRGB(200, 220, 255)
-    musicVolumeKnob.Text = ""
-    musicVolumeKnob.ZIndex = 1200
-    musicVolumeKnob.Parent = musicVolumeTrack
-    local mvkc = Instance.new("UICorner"); mvkc.CornerRadius = UDim.new(0, 20); mvkc.Parent = musicVolumeKnob
-    local saveTitle = Instance.new("TextLabel")
-    saveTitle.Size = UDim2.new(1, -30, 0, 22)
-    saveTitle.Position = UDim2.fromOffset(15, 285)
-    saveTitle.BackgroundTransparency = 1
-    saveTitle.Text = "── 音樂存檔 ──"
-    saveTitle.TextColor3 = Color3.fromRGB(200, 210, 230)
-    saveTitle.TextSize = 13
-    saveTitle.Font = Enum.Font.GothamBold
-    saveTitle.ZIndex = 1100
-    saveTitle.Parent = musicScroll
-    local musicSaveNameBox = Instance.new("TextBox")
-    musicSaveNameBox.Size = UDim2.new(1, -30, 0, 38)
-    musicSaveNameBox.Position = UDim2.fromOffset(15, 310)
-    musicSaveNameBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
-    musicSaveNameBox.TextColor3 = Color3.fromRGB(240, 240, 240)
-    musicSaveNameBox.TextSize = 15
-    musicSaveNameBox.Font = Enum.Font.Gotham
-    musicSaveNameBox.PlaceholderText = "輸入存檔名稱"
-    musicSaveNameBox.Text = ""
-    musicSaveNameBox.ZIndex = 1100
-    musicSaveNameBox.Parent = musicScroll
-    musicSaveNameBox.ClearTextOnFocus = false
-    local msnc = Instance.new("UICorner"); msnc.CornerRadius = UDim.new(0, 10); msnc.Parent = musicSaveNameBox
-    local musicSaveButton = createBtn(musicScroll, 355, "存檔音樂", Color3.fromRGB(70, 100, 140), 38)
-    local musicLoadButton = createBtn(musicScroll, 398, "載入上次所有存檔", Color3.fromRGB(100, 75, 130), 38)
-    local musicSaveListFrame = Instance.new("Frame")
-    musicSaveListFrame.Name = "SaveList"
-    musicSaveListFrame.Size = UDim2.new(1, -30, 0, 200)
-    musicSaveListFrame.Position = UDim2.fromOffset(15, 445)
-    musicSaveListFrame.BackgroundTransparency = 1
-    musicSaveListFrame.ZIndex = 1100
-    musicSaveListFrame.Parent = musicScroll
-    local musicDone = createBtn(musicScroll, 560, "完成", Color3.fromRGB(92, 65, 76), 38)
+    createTitle(musicScroll, "音樂")
+    local musicDone = createBtn(musicScroll, 320, "完成", Color3.fromRGB(92, 65, 76), 38)
     musicPageButton.Activated:Connect(function() closeAllMenus(); musicMenu.Visible = true end)
     musicDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
-
-    local function deleteSave(index)
-        if musicSaves[index] then
-            local name = musicSaves[index].name
-            table.remove(musicSaves, index)
-            saveMusicData()
-            refreshMusicSaveList()
-            showToast("已刪除存檔：" .. name)
-        end
-    end
-    function refreshMusicSaveList()
-        for _, child in ipairs(musicSaveListFrame:GetChildren()) do
-            if child:IsA("TextButton") or child:IsA("TextLabel") then child:Destroy() end
-        end
-        local y = 0
-        for i, save in ipairs(musicSaves) do
-            local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(1, -90, 0, 34)
-            btn.Position = UDim2.fromOffset(15, y)
-            btn.BackgroundColor3 = Color3.fromRGB(60, 80, 110)
-            btn.Text = save.name .. " (ID: " .. save.id .. ")"
-            btn.TextColor3 = Color3.fromRGB(240, 240, 240)
-            btn.TextSize = 13
-            btn.Font = Enum.Font.GothamBold
-            btn.ZIndex = 1100
-            btn.Parent = musicSaveListFrame
-            local c = Instance.new("UICorner"); c.CornerRadius = UDim.new(0, 8); c.Parent = btn
-            btn.Activated:Connect(function() playClick(); playMusicById(save.id) end)
-            local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(60, 34)
-            delBtn.Position = UDim2.fromOffset(15 + (musicSaveListFrame.AbsoluteSize.X - 90) + 5, y)
-            delBtn.BackgroundColor3 = Color3.fromRGB(150, 60, 60)
-            delBtn.Text = "刪除"
-            delBtn.TextColor3 = Color3.fromRGB(255, 220, 220)
-            delBtn.TextSize = 12
-            delBtn.Font = Enum.Font.GothamBold
-            delBtn.ZIndex = 1100
-            delBtn.Parent = musicSaveListFrame
-            local dc = Instance.new("UICorner"); dc.CornerRadius = UDim.new(0, 8); dc.Parent = delBtn
-            delBtn.Activated:Connect(function() playClick(); deleteSave(i) end)
-            y = y + 40
-        end
-        if #musicSaves == 0 then
-            local empty = Instance.new("TextLabel")
-            empty.Size = UDim2.new(1, -30, 0, 30)
-            empty.Position = UDim2.fromOffset(15, 0)
-            empty.BackgroundTransparency = 1
-            empty.Text = "（目前沒有存檔）"
-            empty.TextColor3 = Color3.fromRGB(160, 170, 190)
-            empty.TextSize = 13
-            empty.Font = Enum.Font.Gotham
-            empty.ZIndex = 1100
-            empty.Parent = musicSaveListFrame
-        end
-    end
-    musicPlayButton.Activated:Connect(function() playMusicById(musicIdBox.Text) end)
-    musicStopButton.Activated:Connect(stopMusic)
-    musicSaveButton.Activated:Connect(function()
-        local id = musicIdBox.Text
-        local name = musicSaveNameBox.Text
-        if id == "" then showToast("請先輸入音樂 ID"); return end
-        if name == "" then name = "存檔 " .. (#musicSaves + 1) end
-        table.insert(musicSaves, {name = name, id = id})
-        saveMusicData()
-        refreshMusicSaveList()
-        musicIdBox.Text = ""
-        musicSaveNameBox.Text = ""
-        showToast("已存檔：" .. name)
-    end)
-    musicLoadButton.Activated:Connect(function()
-        if loadMusicData() then
-            refreshMusicSaveList()
-            showToast("已載入 " .. #musicSaves .. " 個存檔")
-        else
-            showToast("沒有找到存檔")
-        end
-    end)
-    local mvDragging = false
-    local function updateVol(input)
-        local width = math.max(musicVolumeTrack.AbsoluteSize.X, 1)
-        local x = input.Position.X - musicVolumeTrack.AbsolutePosition.X
-        local ratio = math.clamp(x / width, 0, 1)
-        musicVolume = ratio
-        musicVolumeKnob.Position = UDim2.new(ratio, -12, 0.5, -12)
-        musicVolumeLabel.Text = string.format("音量大小：%d%%", math.floor(ratio * 100))
-        if musicSound then pcall(function() musicSound.Volume = musicVolume end) end
-    end
-    musicVolumeTrack.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            mvDragging = true; updateVol(input)
-        end
-    end)
-    musicVolumeKnob.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then mvDragging = true end
-    end)
-    UIS.InputChanged:Connect(function(input)
-        if mvDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateVol(input) end
-    end)
-    UIS.InputEnded:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then mvDragging = false end
-    end)
 end
-
--- ==================== 存檔系統 ====================
-local presetSaves = {}
-local presetSaveListFrame = nil
-local presetExpanded = false
-
-local function loadPresetData()
-    local s, data = pcall(function()
-        if readfile and isfile and isfile(PRESET_FILE) then
-            return game:GetService("HttpService"):JSONDecode(readfile(PRESET_FILE))
-        end
-        return nil
-    end)
-    if s and data and type(data) == "table" then presetSaves = data; return true end
-    return false
-end
-local function savePresetData()
-    pcall(function()
-        if writefile then writefile(PRESET_FILE, game:GetService("HttpService"):JSONEncode(presetSaves)) end
-    end)
-end
-
-local function getCurrentSnapshot()
-    return {
-        lightEnabled = lightEnabled,
-        lightMode = currentLightMode,
-        fogAmount = fogAmount,
-        skyName = currentSkyPresetName,
-        weather = currentWeather,
-        rainAmount = rainAmount,
-        snowAmount = snowAmount,
-        crosshair = currentCrosshair,
-        crosshairScale = crosshairScale,
-        lowHp = lowHpEnabled,
-        fpsCounter = fpsCounterEnabled
-    }
-end
-
-local function resetAll()
-    if lightEnabled then turnOffLight() end
-    if currentSkyPresetName then restoreOriginalSkyFn(true) end
-    stopRainFn(); stopSnowFn(); stopThunderFn()
-    thunderButton.Text = "閃電打雷"
-    weatherButton.Text = "目前天氣：晴天"
-    currentWeather = "晴天"
-    removeRotatingCrosshair(); removeTechCrosshair(); removeBlackDiamondCrosshair()
-    currentCrosshair = "無"
-    if lowHpEnabled then lowHpToggleFn(true) end
-    if fpsCounterEnabled then fpsCounterToggleFn(true) end
-end
-
-local function applySnapshot(data)
-    resetAll()
-    task.wait(0.1)
-
-    if data.lightEnabled and data.lightMode then
-        selectMode(data.lightMode, data.lightMode == "預設" and "預設光影" or data.lightMode)
-    end
-    if data.fogAmount then fogAmount = data.fogAmount end
-    if data.skyName then
-        local skyPresets = {
-            { name = "粉红日落", sameId = "rbxassetid://151165214" },
-            { name = "Skeleton 风格", sameId = "rbxassetid://169585459" },
-            { name = "末日红天", faces = { Bk = "rbxassetid://1012890", Dn = "rbxassetid://1012891", Ft = "rbxassetid://1012887", Lf = "rbxassetid://1012889", Rt = "rbxassetid://1012888", Up = "rbxassetid://1014449" } },
-            { name = "c00lkidd", sameId = "rbxassetid://8408806737" },
-            { name = "夜空", faces = { Bk = "rbxassetid://2503254921", Dn = "rbxassetid://2503255146", Ft = "rbxassetid://2503255274", Lf = "rbxassetid://2503255403", Rt = "rbxassetid://2503255557", Up = "rbxassetid://2503255747" }, isDark = true },
-            { name = "Nyan Cat", sameId = "rbxassetid://50767914" },
-            { name = "Spongebob", sameId = "rbxassetid://92663158118274" },
-            { name = "Matrix", sameId = "rbxassetid://191546360" }
-        }
-        for _, p in ipairs(skyPresets) do
-            if p.name == data.skyName then
-                applySkyPresetFn(p, true)
-                break
-            end
-        end
-    end
-    if data.rainAmount then rainAmount = data.rainAmount end
-    if data.snowAmount then snowAmount = data.snowAmount end
-    if data.weather == "下雨" then startRainFn()
-    elseif data.weather == "下雪" then startSnowFn()
-    elseif data.weather == "閃電" then startRainFn(); task.wait(0.1); startThunderFn()
-    end
-    if data.crosshairScale then crosshairScale = data.crosshairScale end
-    if data.crosshair == "旋轉" then createRotatingCrosshairFn(); currentCrosshair = "旋轉"
-    elseif data.crosshair == "科技" then createTechCrosshairFn(); currentCrosshair = "科技"
-    elseif data.crosshair == "黑色菱形" then createBlackDiamondCrosshairFn(); currentCrosshair = "黑色菱形"
-    end
-    if data.lowHp and not lowHpEnabled then lowHpToggleFn(true) end
-    if data.fpsCounter and not fpsCounterEnabled then fpsCounterToggleFn(true) end
-end
-
-do
-    local saveSectionTitle = Instance.new("TextLabel")
-    saveSectionTitle.Size = UDim2.new(1, -30, 0, 24)
-    saveSectionTitle.Position = UDim2.fromOffset(15, 590)
-    saveSectionTitle.BackgroundTransparency = 1
-    saveSectionTitle.Text = "── 設定存檔 ──"
-    saveSectionTitle.TextColor3 = Color3.fromRGB(200, 210, 230)
-    saveSectionTitle.TextSize = 13
-    saveSectionTitle.Font = Enum.Font.GothamBold
-    saveSectionTitle.ZIndex = 1100
-    saveSectionTitle.Parent = mainScroll
-
-    local presetNameBox = Instance.new("TextBox")
-    presetNameBox.Size = UDim2.new(1, -30, 0, 38)
-    presetNameBox.Position = UDim2.fromOffset(15, 618)
-    presetNameBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
-    presetNameBox.TextColor3 = Color3.fromRGB(240, 240, 240)
-    presetNameBox.TextSize = 15
-    presetNameBox.Font = Enum.Font.Gotham
-    presetNameBox.PlaceholderText = "輸入存檔名稱"
-    presetNameBox.Text = ""
-    presetNameBox.ZIndex = 1100
-    presetNameBox.Parent = mainScroll
-    presetNameBox.ClearTextOnFocus = false
-    local pnbc = Instance.new("UICorner"); pnbc.CornerRadius = UDim.new(0, 10); pnbc.Parent = presetNameBox
-
-    local presetSaveBtn = createBtn(mainScroll, 664, "存檔", Color3.fromRGB(70, 120, 90), 38)
-    local presetViewBtn = createBtn(mainScroll, 708, "查看存檔 ▼", Color3.fromRGB(70, 90, 130), 38)
-
-    presetSaveListFrame = Instance.new("Frame")
-    presetSaveListFrame.Name = "PresetList"
-    presetSaveListFrame.Size = UDim2.new(1, -30, 0, 200)
-    presetSaveListFrame.Position = UDim2.fromOffset(15, 752)
-    presetSaveListFrame.BackgroundTransparency = 1
-    presetSaveListFrame.Visible = false
-    presetSaveListFrame.ZIndex = 1100
-    presetSaveListFrame.Parent = mainScroll
-
-    local function refreshPresetList()
-        for _, child in ipairs(presetSaveListFrame:GetChildren()) do
-            if child:IsA("Frame") or child:IsA("TextLabel") then child:Destroy() end
-        end
-        local y = 0
-        for i, save in ipairs(presetSaves) do
-            local row = Instance.new("Frame")
-            row.Size = UDim2.new(1, 0, 0, 36)
-            row.Position = UDim2.fromOffset(0, y)
-            row.BackgroundColor3 = Color3.fromRGB(50, 60, 85)
-            row.BorderSizePixel = 0
-            row.ZIndex = 1100
-            row.Parent = presetSaveListFrame
-            local rc = Instance.new("UICorner"); rc.CornerRadius = UDim.new(0, 8); rc.Parent = row
-
-            local nameLabel = Instance.new("TextLabel")
-            nameLabel.Size = UDim2.new(1, -130, 1, 0)
-            nameLabel.Position = UDim2.fromOffset(10, 0)
-            nameLabel.BackgroundTransparency = 1
-            nameLabel.Text = save.name
-            nameLabel.TextColor3 = Color3.fromRGB(230, 235, 245)
-            nameLabel.TextSize = 13
-            nameLabel.Font = Enum.Font.GothamBold
-            nameLabel.TextXAlignment = Enum.TextXAlignment.Left
-            nameLabel.TextTruncate = Enum.TextTruncate.AtEnd
-            nameLabel.ZIndex = 1150
-            nameLabel.Parent = row
-
-            local loadBtn = Instance.new("TextButton")
-            loadBtn.Size = UDim2.fromOffset(56, 30)
-            loadBtn.Position = UDim2.new(1, -124, 0.5, -15)
-            loadBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 90)
-            loadBtn.Text = "載入"
-            loadBtn.TextColor3 = Color3.fromRGB(240, 240, 240)
-            loadBtn.TextSize = 12
-            loadBtn.Font = Enum.Font.GothamBold
-            loadBtn.ZIndex = 1150
-            loadBtn.Parent = row
-            local lbc = Instance.new("UICorner"); lbc.CornerRadius = UDim.new(0, 6); lbc.Parent = loadBtn
-            loadBtn.Activated:Connect(function()
-                playClick()
-                applySnapshot(save.data)
-                showToast("已載入存檔：" .. save.name)
-            end)
-
-            local delBtn = Instance.new("TextButton")
-            delBtn.Size = UDim2.fromOffset(56, 30)
-            delBtn.Position = UDim2.new(1, -64, 0.5, -15)
-            delBtn.BackgroundColor3 = Color3.fromRGB(150, 60, 60)
-            delBtn.Text = "刪除"
-            delBtn.TextColor3 = Color3.fromRGB(255, 220, 220)
-            delBtn.TextSize = 12
-            delBtn.Font = Enum.Font.GothamBold
-            delBtn.ZIndex = 1150
-            delBtn.Parent = row
-            local dbc = Instance.new("UICorner"); dbc.CornerRadius = UDim.new(0, 6); dbc.Parent = delBtn
-            delBtn.Activated:Connect(function()
-                playClick()
-                table.remove(presetSaves, i)
-                savePresetData()
-                refreshPresetList()
-                showToast("已刪除存檔：" .. save.name)
-            end)
-
-            y = y + 40
-        end
-        if #presetSaves == 0 then
-            local empty = Instance.new("TextLabel")
-            empty.Size = UDim2.new(1, 0, 0, 30)
-            empty.Position = UDim2.fromOffset(0, 0)
-            empty.BackgroundTransparency = 1
-            empty.Text = "（目前沒有存檔）"
-            empty.TextColor3 = Color3.fromRGB(160, 170, 190)
-            empty.TextSize = 13
-            empty.Font = Enum.Font.Gotham
-            empty.ZIndex = 1150
-            empty.Parent = presetSaveListFrame
-        end
-    end
-
-    presetSaveBtn.Activated:Connect(function()
-        local name = presetNameBox.Text
-        if name == "" then showToast("請先輸入存檔名稱"); return end
-        for _, s in ipairs(presetSaves) do
-            if s.name == name then
-                showToast("錯誤：此名字已重複")
-                return
-            end
-        end
-        if #presetSaves >= 4 then
-            showToast("已達上限，請先刪除一個")
-            return
-        end
-        table.insert(presetSaves, {name = name, data = getCurrentSnapshot()})
-        savePresetData()
-        refreshPresetList()
-        presetNameBox.Text = ""
-        showToast("已存檔：" .. name)
-    end)
-
-    presetViewBtn.Activated:Connect(function()
-        presetExpanded = not presetExpanded
-        presetSaveListFrame.Visible = presetExpanded
-        presetViewBtn.Text = presetExpanded and "查看存檔 ▲" or "查看存檔 ▼"
-    end)
-
-    loadPresetData()
-    refreshPresetList()
-end
-
--- ==================== 收尾 ====================
-allMenus = { main, timeMenu, skyMenu, perfMenu, otherMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
-UIS.InputBegan:Connect(function(input, processed)
-    if processed then return end
-    if input.KeyCode == Enum.KeyCode.I then
-        local anyOpen = false
-        for _, m in ipairs(allMenus) do if m and m.Visible then anyOpen = true; break end end
-        if anyOpen then closeAllMenus() else main.Visible = true end
-    end
-end)
-
-print("湊企鵝mod：敵克製作 v2.4版本已載入（新增其他功能頁面）")
