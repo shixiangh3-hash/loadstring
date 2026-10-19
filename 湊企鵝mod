@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜敵克製作 v2.5版本（新增擊殺音效）
+-- 湊企鵝mod｜敵克製作 v2.6版本（修復選單重疊Bug）
 --====================================================
 
 local Players = game:GetService("Players")
@@ -125,7 +125,7 @@ do
     loadingSubtitle.Size = UDim2.new(1, -40, 0, 30)
     loadingSubtitle.Position = UDim2.new(0, 20, 0.5, 40)
     loadingSubtitle.BackgroundTransparency = 1
-    loadingSubtitle.Text = "敵克製作 v2.5版本"
+    loadingSubtitle.Text = "敵克製作 v2.6版本"
     loadingSubtitle.TextColor3 = Color3.fromRGB(180, 180, 200)
     loadingSubtitle.TextSize = 20
     loadingSubtitle.Font = Enum.Font.Gotham
@@ -162,6 +162,8 @@ local oc = Instance.new("UICorner"); oc.CornerRadius = UDim.new(0, 32); oc.Paren
 addRGBStroke(orb, 3)
 
 -- ==================== 工具函式 ====================
+local allMenus = {} -- 【修正】將選單表移到最前面
+
 local function createBtn(parent, y, text, color, h)
     local b = Instance.new("TextButton")
     b.Size = UDim2.new(1, -30, 0, h or 40)
@@ -178,6 +180,7 @@ local function createBtn(parent, y, text, color, h)
     b.MouseButton1Down:Connect(function() playClick() end)
     return b
 end
+
 local function createMenu(w, h, canvasH)
     local f = Instance.new("Frame")
     f.Size = UDim2.fromOffset(w, h)
@@ -198,8 +201,11 @@ local function createMenu(w, h, canvasH)
     scroll.CanvasSize = UDim2.new(0, 0, 0, canvasH or h)
     scroll.ZIndex = 1050
     scroll.Parent = f
+    
+    table.insert(allMenus, f) -- 【修正】所有建立的選單自動加入表中
     return f
 end
+
 local function createTitle(parent, text)
     local l = Instance.new("TextLabel")
     l.Size = UDim2.new(1, -30, 0, 42)
@@ -214,6 +220,7 @@ local function createTitle(parent, text)
     addRGB(l, "TextColor3")
     return l
 end
+
 local function showToast(text)
     local t = Instance.new("TextLabel")
     t.Size = UDim2.fromOffset(315, 50)
@@ -233,6 +240,10 @@ local function showToast(text)
         task.wait(0.7)
         if t then t:Destroy() end
     end)
+end
+
+local function closeAllMenus()
+    for _, m in ipairs(allMenus) do if m then m.Visible = false end end
 end
 
 -- ==================== 主選單 ====================
@@ -266,7 +277,6 @@ end
 
 -- ==================== 全域狀態 ====================
 local fogAmount = 0.5
-local allMenus = {}
 local lightEnabled = false
 local currentLightMode = nil
 local savedLighting = {}
@@ -280,10 +290,6 @@ if Terrain then
         local ok, v = pcall(function() return Terrain[p] end)
         if ok then savedTerrain[p] = v end
     end
-end
-
-local function closeAllMenus()
-    for _, m in ipairs(allMenus) do if m then m.Visible = false end end
 end
 
 -- ==================== 光影邏輯 ====================
@@ -941,7 +947,6 @@ local function doHitRegistration()
 
     local myPos = myChar.HumanoidRootPart.Position
 
-    -- 1. 準心射線判定
     local viewportSize = camera.ViewportSize
     local centerRay = camera:ViewportPointToRay(viewportSize.X / 2, viewportSize.Y / 2)
     local rayParams = RaycastParams.new()
@@ -961,7 +966,6 @@ local function doHitRegistration()
         end
     end
 
-    -- 2. 掃描附近的目標 (用於手雷/燃燒瓶/近戰)
     local targetsToCheck = {}
     for _, p in ipairs(Players:GetPlayers()) do
         if p ~= Player and p.Character then table.insert(targetsToCheck, p.Character) end
@@ -1011,7 +1015,6 @@ UIS.InputEnded:Connect(function(input, gameProcessed)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then stopFiring() end
 end)
 
--- 其他功能頁面建立
 do
     otherMenu = createMenu(320, 340, 420)
     local otherScroll = otherMenu:FindFirstChild("Scroll")
@@ -1053,7 +1056,7 @@ do
     otherDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
     otherPageButton.Activated:Connect(function() closeAllMenus(); otherMenu.Visible = true end)
 
-    -- ===== 防擊飛 =====
+    -- 防擊飛
     local function disablePlayerCollision(character)
         if not character then return end
         for _, part in ipairs(character:GetChildren()) do
@@ -1104,7 +1107,7 @@ do
         end
     end)
 
-    -- ===== Anti-AFK =====
+    -- Anti-AFK
     local function startAntiAfk()
         if antiAfkConn then return end
         antiAfkConn = Player.Idled:Connect(function()
@@ -1134,7 +1137,7 @@ do
         end
     end)
 
-    -- ===== 擊殺音效子選單 =====
+    -- 擊殺音效子選單
     killSoundMenu = createMenu(320, 380, 750)
     local killScroll = killSoundMenu:FindFirstChild("Scroll")
     createTitle(killScroll, "擊殺音效選擇")
