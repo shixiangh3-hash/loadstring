@@ -1,0 +1,747 @@
+--====================================================
+-- 湊企鵝 Aimbot｜ESP 重生修復版 v2.4
+--====================================================
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local UIS = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+local Workspace = game:GetService("Workspace")
+
+local PREFIX = "Aim_" .. tostring(math.random(100000, 999999)) .. "_"
+
+for _, obj in ipairs(PlayerGui:GetChildren()) do
+    if obj:IsA("ScreenGui") and (obj.Name:find("AimBot") or obj.Name:find("Aim_")) then
+        pcall(function() obj:Destroy() end)
+    end
+end
+
+-- ==================== 狀態 ====================
+local isAimbotEnabled = false
+local isKeyAimbotEnabled = false 
+local isKeyAimbotActive = false 
+local wallCheckEnabled = false 
+local teamCheckEnabled = true 
+local espEnabled = false
+local tracerEnabled = false
+local fovRadius = 150
+local targetPart = "Head"
+local smoothness = 0.3 
+local currentColor = Color3.fromRGB(0, 255, 255)
+local lockedPlayer = nil 
+local manualTeammates = {} 
+
+local espHighlights = {}
+local tracerLines = {}
+
+-- ==================== GUI ====================
+local gui = Instance.new("ScreenGui")
+gui.Name = PREFIX .. "AimBot"
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 999999
+gui.Parent = PlayerGui
+
+local orb = Instance.new("ImageButton")
+orb.Name = PREFIX .. "Orb"
+orb.Size = UDim2.fromOffset(60, 60)
+orb.Position = UDim2.new(0, 22, 0.5, -30)
+orb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
+orb.Image = "rbxassetid://125797550774730"
+orb.ScaleType = Enum.ScaleType.Crop
+orb.ZIndex = 1200
+orb.Parent = gui
+local oc = Instance.new("UICorner"); oc.CornerRadius = UDim.new(0, 30); oc.Parent = orb
+local ost = Instance.new("UIStroke"); ost.Thickness = 3; ost.Color = currentColor; ost.Parent = orb
+
+local fovCircle = Instance.new("Frame")
+fovCircle.Name = "FOVCircle"
+fovCircle.AnchorPoint = Vector2.new(0.5, 0.5)
+fovCircle.Position = UDim2.fromScale(0.5, 0.5)
+fovCircle.BackgroundTransparency = 1
+fovCircle.Visible = false
+fovCircle.ZIndex = 100
+fovCircle.Parent = gui
+Instance.new("UICorner", fovCircle).CornerRadius = UDim.new(1, 0)
+local fovStroke = Instance.new("UIStroke")
+fovStroke.Color = currentColor
+fovStroke.Thickness = 2
+fovStroke.Transparency = 0.2
+fovStroke.Parent = fovCircle
+
+local main = Instance.new("Frame")
+main.Size = UDim2.fromOffset(320, 540)
+main.Position = UDim2.fromScale(0.5, 0.5) 
+main.AnchorPoint = Vector2.new(0.5, 0.5)
+main.BackgroundColor3 = Color3.fromRGB(24, 27, 39)
+main.Visible = false
+main.ZIndex = 1000
+main.Parent = gui
+local mc = Instance.new("UICorner"); mc.CornerRadius = UDim.new(0, 16); mc.Parent = main
+local ms = Instance.new("UIStroke"); ms.Thickness = 2; ms.Color = currentColor; ms.Parent = main
+
+local scale = Instance.new("UIScale")
+local viewportY = Workspace.CurrentCamera.ViewportSize.Y
+scale.Scale = math.min(1, viewportY / 700) 
+scale.Parent = main
+
+local titleBar = Instance.new("TextButton")
+titleBar.Size = UDim2.new(1, 0, 0, 45)
+titleBar.BackgroundTransparency = 1
+titleBar.Text = "🎯 終極系統 (拖曳此處移動)"
+titleBar.TextColor3 = Color3.fromRGB(230, 215, 145)
+titleBar.TextSize = 18
+titleBar.Font = Enum.Font.GothamBold
+titleBar.TextXAlignment = Enum.TextXAlignment.Left
+titleBar.ZIndex = 1100
+titleBar.Parent = main
+local titlePadding = Instance.new("UIPadding"); titlePadding.PaddingLeft = UDim.new(0, 15); titlePadding.Parent = titleBar
+
+local mainScroll = Instance.new("ScrollingFrame")
+mainScroll.Size = UDim2.new(1, 0, 1, -45)
+mainScroll.Position = UDim2.fromOffset(0, 45)
+mainScroll.BackgroundTransparency = 1
+mainScroll.BorderSizePixel = 0
+mainScroll.ScrollBarThickness = 6
+mainScroll.ScrollBarImageColor3 = currentColor
+mainScroll.CanvasSize = UDim2.new(0, 0, 0, 900) 
+mainScroll.ZIndex = 1050
+mainScroll.Parent = main
+
+local function createBtn(y, text, color, h)
+    local b = Instance.new("TextButton")
+    b.Size = UDim2.new(1, -30, 0, h or 40)
+    b.Position = UDim2.fromOffset(15, y)
+    b.BackgroundColor3 = color
+    b.Text = text
+    b.TextColor3 = Color3.fromRGB(255, 255, 255)
+    b.TextSize = 15
+    b.Font = Enum.Font.GothamBold
+    b.ZIndex = 1100
+    b.Parent = mainScroll
+    Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
+    return b
+end
+
+local toggleBtn = createBtn(10, "Aimbot：關閉", Color3.fromRGB(100, 40, 50), 45)
+local keyToggleBtn = createBtn(60, "按鍵操控：關閉", Color3.fromRGB(50, 60, 80), 45)
+local wallBtn = createBtn(115, "牆壁偵測：關閉", Color3.fromRGB(100, 40, 50), 35)
+local teamBtn = createBtn(155, "隊友偵測：開啟", Color3.fromRGB(40, 120, 70), 35)
+
+local espBtn = createBtn(200, "ESP 透視：關閉", Color3.fromRGB(50, 60, 80), 35)
+local tracerBtn = createBtn(240, "距離連線：關閉", Color3.fromRGB(50, 60, 80), 35)
+
+local function createSlider(y, labelText, isColor)
+    local lbl = Instance.new("TextLabel")
+    lbl.Size = UDim2.new(1, -30, 0, 24)
+    lbl.Position = UDim2.fromOffset(15, y)
+    lbl.BackgroundTransparency = 1
+    lbl.Text = labelText
+    lbl.TextColor3 = Color3.fromRGB(200, 210, 230)
+    lbl.TextSize = 14
+    lbl.Font = Enum.Font.GothamBold
+    lbl.TextXAlignment = Enum.TextXAlignment.Left
+    lbl.ZIndex = 1100
+    lbl.Parent = mainScroll
+
+    local track = Instance.new("Frame")
+    track.Size = UDim2.new(1, -30, 0, 10)
+    track.Position = UDim2.fromOffset(15, y + 30)
+    track.BackgroundColor3 = Color3.fromRGB(60, 70, 90)
+    track.ZIndex = 1100
+    track.Parent = mainScroll
+    Instance.new("UICorner", track).CornerRadius = UDim.new(0, 5)
+
+    if isColor then
+        local grad = Instance.new("UIGradient")
+        grad.Color = ColorSequence.new({
+            ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 0, 0)),
+            ColorSequenceKeypoint.new(0.16, Color3.fromRGB(255, 255, 0)),
+            ColorSequenceKeypoint.new(0.33, Color3.fromRGB(0, 255, 0)),
+            ColorSequenceKeypoint.new(0.5, Color3.fromRGB(0, 255, 255)),
+            ColorSequenceKeypoint.new(0.66, Color3.fromRGB(0, 0, 255)),
+            ColorSequenceKeypoint.new(0.83, Color3.fromRGB(255, 0, 255)),
+            ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 0))
+        })
+        grad.Parent = track
+    end
+
+    local knob = Instance.new("TextButton")
+    knob.Size = UDim2.fromOffset(20, 20)
+    knob.Position = UDim2.new(0, -10, 0.5, -10)
+    knob.BackgroundColor3 = isColor and Color3.fromRGB(255,0,0) or currentColor
+    knob.Text = ""
+    knob.ZIndex = 1101
+    knob.Parent = track
+    Instance.new("UICorner", knob).CornerRadius = UDim.new(1, 0)
+
+    return lbl, track, knob
+end
+
+local fovLabel, fovTrack, fovKnob = createSlider(290, "FOV 大小：150", false)
+local smoothLabel, smoothTrack, smoothKnob = createSlider(350, "平滑度：0.30", false)
+local colorLabel, colorTrack, colorKnob = createSlider(410, "圓圈/ESP/連線顏色", true)
+
+local partLabel = Instance.new("TextLabel")
+partLabel.Size = UDim2.new(1, -30, 0, 24)
+partLabel.Position = UDim2.fromOffset(15, 470)
+partLabel.BackgroundTransparency = 1
+partLabel.Text = "瞄準部位：頭部"
+partLabel.TextColor3 = Color3.fromRGB(200, 210, 230)
+partLabel.TextSize = 14
+partLabel.Font = Enum.Font.GothamBold
+partLabel.TextXAlignment = Enum.TextXAlignment.Left
+partLabel.ZIndex = 1100
+partLabel.Parent = mainScroll
+
+local partFrame = Instance.new("Frame")
+partFrame.Size = UDim2.new(1, -30, 0, 40)
+partFrame.Position = UDim2.fromOffset(15, 500)
+partFrame.BackgroundTransparency = 1
+partFrame.ZIndex = 1100
+partFrame.Parent = mainScroll
+
+local function createPartBtn(x, text, partName)
+    local btn = Instance.new("TextButton")
+    btn.Size = UDim2.new(0.31, 0, 1, 0)
+    btn.Position = UDim2.new(x, 0, 0, 0)
+    btn.BackgroundColor3 = Color3.fromRGB(50, 60, 80)
+    btn.Text = text
+    btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    btn.TextSize = 14
+    btn.Font = Enum.Font.GothamBold
+    btn.ZIndex = 1100
+    btn.Parent = partFrame
+    Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 8)
+    
+    btn.Activated:Connect(function()
+        targetPart = partName
+        partLabel.Text = "瞄準部位：" .. text
+        for _, child in ipairs(partFrame:GetChildren()) do
+            if child:IsA("TextButton") then child.BackgroundColor3 = Color3.fromRGB(50, 60, 80) end
+        end
+        btn.BackgroundColor3 = Color3.fromRGB(0, 150, 150)
+    end)
+    return btn
+end
+
+local headBtn = createPartBtn(0, "頭部", "Head")
+local torsoBtn = createPartBtn(0.345, "身體", "HumanoidRootPart")
+local legBtn = createPartBtn(0.69, "腳", "LeftFoot")
+headBtn.BackgroundColor3 = Color3.fromRGB(0, 150, 150)
+
+local lockTargetBtn = createBtn(555, "名單與鎖定 (展開)", Color3.fromRGB(80, 60, 120), 40)
+local playerListFrame = Instance.new("Frame")
+playerListFrame.Size = UDim2.new(1, -30, 0, 190)
+playerListFrame.Position = UDim2.fromOffset(15, 605)
+playerListFrame.BackgroundColor3 = Color3.fromRGB(15, 18, 28)
+playerListFrame.Visible = false
+playerListFrame.ZIndex = 1100
+playerListFrame.Parent = mainScroll
+Instance.new("UICorner", playerListFrame).CornerRadius = UDim.new(0, 10)
+
+local playerScroll = Instance.new("ScrollingFrame")
+playerScroll.Size = UDim2.new(1, -10, 1, -45)
+playerScroll.Position = UDim2.fromOffset(5, 5)
+playerScroll.BackgroundTransparency = 1
+playerScroll.BorderSizePixel = 0
+playerScroll.ScrollBarThickness = 4
+playerScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+playerScroll.ZIndex = 1101
+playerScroll.Parent = playerListFrame
+
+local refreshBtn = Instance.new("TextButton")
+refreshBtn.Size = UDim2.new(0.48, 0, 0, 30)
+refreshBtn.Position = UDim2.new(0, 0, 1, -35)
+refreshBtn.BackgroundColor3 = Color3.fromRGB(50, 90, 70)
+refreshBtn.Text = "刷新名單"
+refreshBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+refreshBtn.TextSize = 14
+refreshBtn.Font = Enum.Font.GothamBold
+refreshBtn.ZIndex = 1102
+refreshBtn.Parent = playerListFrame
+Instance.new("UICorner", refreshBtn).CornerRadius = UDim.new(0, 8)
+
+local unlockBtn = Instance.new("TextButton")
+unlockBtn.Size = UDim2.new(0.48, 0, 0, 30)
+unlockBtn.Position = UDim2.new(0.52, 0, 1, -35)
+unlockBtn.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
+unlockBtn.Text = "取消單獨鎖定"
+unlockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+unlockBtn.TextSize = 14
+unlockBtn.Font = Enum.Font.GothamBold
+unlockBtn.ZIndex = 1102
+unlockBtn.Parent = playerListFrame
+Instance.new("UICorner", unlockBtn).CornerRadius = UDim.new(0, 8)
+
+local lockStatusLabel = Instance.new("TextLabel")
+lockStatusLabel.Size = UDim2.new(1, -30, 0, 30)
+lockStatusLabel.Position = UDim2.fromOffset(15, 805)
+lockStatusLabel.BackgroundTransparency = 1
+lockStatusLabel.Text = "當前狀態：鎖定所有人"
+lockStatusLabel.TextColor3 = currentColor
+lockStatusLabel.TextSize = 14
+lockStatusLabel.Font = Enum.Font.GothamBold
+lockStatusLabel.ZIndex = 1100
+lockStatusLabel.Parent = mainScroll
+
+local floatAimBtn = Instance.new("TextButton")
+floatAimBtn.Name = PREFIX .. "FloatAim"
+floatAimBtn.Size = UDim2.fromOffset(70, 70)
+floatAimBtn.Position = UDim2.new(1, -100, 0.5, 50) 
+floatAimBtn.BackgroundColor3 = Color3.fromRGB(100, 40, 50)
+floatAimBtn.Text = "自瞄\n關閉"
+floatAimBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+floatAimBtn.TextSize = 16
+floatAimBtn.Font = Enum.Font.GothamBold
+floatAimBtn.Visible = false
+floatAimBtn.ZIndex = 1300
+floatAimBtn.Parent = gui
+Instance.new("UICorner", floatAimBtn).CornerRadius = UDim.new(1, 0)
+local floatStroke = Instance.new("UIStroke", floatAimBtn); floatStroke.Thickness = 3; floatStroke.Color = Color3.fromRGB(255, 255, 255); floatStroke.Transparency = 0.5
+
+local isDraggingFloat = false
+local floatDragStart = nil
+local floatStartPos = nil
+local floatMoved = false
+
+-- ==================== 邏輯處理 ====================
+local draggingFov, draggingSmooth, draggingColor = false, false, false
+
+local function updateFov(input)
+    local width = math.max(fovTrack.AbsoluteSize.X, 1)
+    local ratio = math.clamp((input.Position.X - fovTrack.AbsolutePosition.X) / width, 0, 1)
+    fovKnob.Position = UDim2.new(ratio, -10, 0.5, -10)
+    fovRadius = math.floor(50 + ratio * 350)
+    fovLabel.Text = "FOV 大小：" .. fovRadius
+    fovCircle.Size = UDim2.fromOffset(fovRadius * 2, fovRadius * 2)
+end
+
+local function updateSmooth(input)
+    local width = math.max(smoothTrack.AbsoluteSize.X, 1)
+    local ratio = math.clamp((input.Position.X - smoothTrack.AbsolutePosition.X) / width, 0, 1)
+    smoothKnob.Position = UDim2.new(ratio, -10, 0.5, -10)
+    smoothness = math.clamp(0.01 + ratio * 0.99, 0.01, 1.0)
+    smoothLabel.Text = string.format("平滑度：%.2f", smoothness)
+end
+
+local function updateColor(input)
+    local width = math.max(colorTrack.AbsoluteSize.X, 1)
+    local ratio = math.clamp((input.Position.X - colorTrack.AbsolutePosition.X) / width, 0, 1)
+    colorKnob.Position = UDim2.new(ratio, -10, 0.5, -10)
+    currentColor = Color3.fromHSV(ratio, 1, 1)
+    colorKnob.BackgroundColor3 = currentColor
+    fovStroke.Color = currentColor
+    ms.Color = currentColor
+    ost.Color = currentColor
+    lockStatusLabel.TextColor3 = currentColor
+end
+
+local function bindSlider(track, knob, updateFn, dragVarSetter)
+    track.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragVarSetter(true); updateFn(input)
+        end
+    end)
+    knob.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            dragVarSetter(true)
+        end
+    end)
+end
+
+bindSlider(fovTrack, fovKnob, updateFov, function(v) draggingFov = v end)
+bindSlider(smoothTrack, smoothKnob, updateSmooth, function(v) draggingSmooth = v end)
+bindSlider(colorTrack, colorKnob, updateColor, function(v) draggingColor = v end)
+
+UIS.InputChanged:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
+        if draggingFov then updateFov(input) end
+        if draggingSmooth then updateSmooth(input) end
+        if draggingColor then updateColor(input) end
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingFov = false; draggingSmooth = false; draggingColor = false
+    end
+end)
+
+toggleBtn.Activated:Connect(function()
+    isAimbotEnabled = not isAimbotEnabled
+    fovCircle.Visible = isAimbotEnabled or isKeyAimbotActive
+    toggleBtn.BackgroundColor3 = isAimbotEnabled and Color3.fromRGB(40, 120, 70) or Color3.fromRGB(100, 40, 50)
+    toggleBtn.Text = isAimbotEnabled and "Aimbot：開啟" or "Aimbot：關閉"
+end)
+
+keyToggleBtn.Activated:Connect(function()
+    isKeyAimbotEnabled = not isKeyAimbotEnabled
+    floatAimBtn.Visible = isKeyAimbotEnabled
+    keyToggleBtn.BackgroundColor3 = isKeyAimbotEnabled and Color3.fromRGB(40, 120, 70) or Color3.fromRGB(50, 60, 80)
+    keyToggleBtn.Text = isKeyAimbotEnabled and "按鍵操控：開啟" or "按鍵操控：關閉"
+    
+    if not isKeyAimbotEnabled then
+        isKeyAimbotActive = false
+        floatAimBtn.BackgroundColor3 = Color3.fromRGB(100, 40, 50)
+        floatAimBtn.Text = "自瞄\n關閉"
+        fovCircle.Visible = isAimbotEnabled
+    end
+end)
+
+wallBtn.Activated:Connect(function()
+    wallCheckEnabled = not wallCheckEnabled
+    wallBtn.BackgroundColor3 = wallCheckEnabled and Color3.fromRGB(40, 120, 70) or Color3.fromRGB(100, 40, 50)
+    wallBtn.Text = wallCheckEnabled and "牆壁偵測：開啟" or "牆壁偵測：關閉"
+end)
+
+teamBtn.Activated:Connect(function()
+    teamCheckEnabled = not teamCheckEnabled
+    teamBtn.BackgroundColor3 = teamCheckEnabled and Color3.fromRGB(40, 120, 70) or Color3.fromRGB(100, 40, 50)
+    teamBtn.Text = teamCheckEnabled and "隊友偵測：開啟" or "隊友偵測：關閉"
+end)
+
+espBtn.Activated:Connect(function()
+    espEnabled = not espEnabled
+    espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(40, 120, 70) or Color3.fromRGB(50, 60, 80)
+    espBtn.Text = espEnabled and "ESP 透視：開啟" or "ESP 透視：關閉"
+end)
+
+tracerBtn.Activated:Connect(function()
+    tracerEnabled = not tracerEnabled
+    tracerBtn.BackgroundColor3 = tracerEnabled and Color3.fromRGB(40, 120, 70) or Color3.fromRGB(50, 60, 80)
+    tracerBtn.Text = tracerEnabled and "距離連線：開啟" or "距離連線：關閉"
+end)
+
+lockTargetBtn.Activated:Connect(function()
+    playerListFrame.Visible = not playerListFrame.Visible
+    lockTargetBtn.Text = playerListFrame.Visible and "收起名單" or "名單與鎖定 (展開)"
+end)
+
+local function refreshPlayerList()
+    for _, child in ipairs(playerScroll:GetChildren()) do
+        if child:IsA("TextButton") or child:IsA("Frame") then child:Destroy() end
+    end
+
+    local yOffset = 0
+    for _, p in ipairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer then
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, -10, 0, 35)
+            row.Position = UDim2.fromOffset(5, yOffset)
+            row.BackgroundColor3 = Color3.fromRGB(45, 50, 65)
+            row.ZIndex = 1102
+            row.Parent = playerScroll
+            Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+            local nameLbl = Instance.new("TextLabel")
+            nameLbl.Size = UDim2.new(0.5, 0, 1, 0)
+            nameLbl.Position = UDim2.fromOffset(8, 0)
+            nameLbl.BackgroundTransparency = 1
+            nameLbl.Text = p.DisplayName
+            nameLbl.TextColor3 = Color3.fromRGB(255, 255, 255)
+            nameLbl.TextSize = 13
+            nameLbl.Font = Enum.Font.Gotham
+            nameLbl.TextXAlignment = Enum.TextXAlignment.Left
+            nameLbl.ZIndex = 1103
+            nameLbl.Parent = row
+
+            local lockBtn = Instance.new("TextButton")
+            lockBtn.Size = UDim2.new(0.22, 0, 0, 24)
+            lockBtn.Position = UDim2.new(0.52, 0, 0.5, -12)
+            lockBtn.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
+            lockBtn.Text = "鎖定"
+            lockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            lockBtn.TextSize = 12
+            lockBtn.Font = Enum.Font.GothamBold
+            lockBtn.ZIndex = 1103
+            lockBtn.Parent = row
+            Instance.new("UICorner", lockBtn).CornerRadius = UDim.new(0, 4)
+
+            local teamMarkBtn = Instance.new("TextButton")
+            teamMarkBtn.Size = UDim2.new(0.22, 0, 0, 24)
+            teamMarkBtn.Position = UDim2.new(0.76, 0, 0.5, -12)
+            teamMarkBtn.BackgroundColor3 = manualTeammates[p] and Color3.fromRGB(50, 150, 80) or Color3.fromRGB(50, 80, 120)
+            teamMarkBtn.Text = manualTeammates[p] and "已隊友" or "設隊友"
+            teamMarkBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            teamMarkBtn.TextSize = 12
+            teamMarkBtn.Font = Enum.Font.GothamBold
+            teamMarkBtn.ZIndex = 1103
+            teamMarkBtn.Parent = row
+            Instance.new("UICorner", teamMarkBtn).CornerRadius = UDim.new(0, 4)
+
+            lockBtn.Activated:Connect(function()
+                lockedPlayer = p
+                lockStatusLabel.Text = "當前狀態：單獨鎖定 " .. p.DisplayName
+                lockStatusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
+                playerListFrame.Visible = false
+                lockTargetBtn.Text = "名單與鎖定 (展開)"
+            end)
+
+            teamMarkBtn.Activated:Connect(function()
+                if manualTeammates[p] then
+                    manualTeammates[p] = nil
+                    teamMarkBtn.Text = "設隊友"
+                    teamMarkBtn.BackgroundColor3 = Color3.fromRGB(50, 80, 120)
+                else
+                    manualTeammates[p] = true
+                    teamMarkBtn.Text = "已隊友"
+                    teamMarkBtn.BackgroundColor3 = Color3.fromRGB(50, 150, 80)
+                end
+            end)
+
+            yOffset = yOffset + 40
+        end
+    end
+    playerScroll.CanvasSize = UDim2.new(0, 0, 0, yOffset)
+end
+
+refreshBtn.Activated:Connect(refreshPlayerList)
+
+unlockBtn.Activated:Connect(function()
+    lockedPlayer = nil
+    lockStatusLabel.Text = "當前狀態：鎖定所有人"
+    lockStatusLabel.TextColor3 = currentColor
+    playerListFrame.Visible = false
+    lockTargetBtn.Text = "名單與鎖定 (展開)"
+end)
+
+refreshPlayerList()
+
+local orbDragging, orbMoved = false, false
+local dragStart, orbStart
+orb.Activated:Connect(function()
+    if orbMoved then orbMoved = false; return end
+    main.Visible = not main.Visible
+    if main.Visible then refreshPlayerList() end 
+end)
+orb.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        orbDragging = true; orbMoved = false
+        dragStart = input.Position; orbStart = orb.Position
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if orbDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local d = input.Position - dragStart
+        if d.Magnitude > 8 then orbMoved = true end
+        orb.Position = UDim2.new(orbStart.X.Scale, orbStart.X.Offset + d.X, orbStart.Y.Scale, orbStart.Y.Offset + d.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then orbDragging = false end
+end)
+
+local draggingUI, uiDragStart, uiStartPos = false, nil, nil
+titleBar.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        draggingUI = true; uiDragStart = input.Position; uiStartPos = main.Position
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if draggingUI and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - uiDragStart
+        main.Position = UDim2.new(uiStartPos.X.Scale, uiStartPos.X.Offset + delta.X, uiStartPos.Y.Scale, uiStartPos.Y.Offset + delta.Y)
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then draggingUI = false end
+end)
+
+floatAimBtn.InputBegan:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isDraggingFloat = true
+        floatDragStart = input.Position
+        floatStartPos = floatAimBtn.Position
+        floatMoved = false
+    end
+end)
+UIS.InputChanged:Connect(function(input)
+    if isDraggingFloat and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local d = input.Position - floatDragStart
+        if d.Magnitude > 10 then floatMoved = true end
+        if floatMoved then
+            floatAimBtn.Position = UDim2.new(floatStartPos.X.Scale, floatStartPos.X.Offset + d.X, floatStartPos.Y.Scale, floatStartPos.Y.Offset + d.Y)
+        end
+    end
+end)
+UIS.InputEnded:Connect(function(input)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        if isDraggingFloat then
+            isDraggingFloat = false
+            if not floatMoved then
+                isKeyAimbotActive = not isKeyAimbotActive
+                if isKeyAimbotActive then
+                    floatAimBtn.BackgroundColor3 = Color3.fromRGB(40, 120, 70)
+                    floatAimBtn.Text = "自瞄\n開啟"
+                    fovCircle.Visible = true
+                else
+                    floatAimBtn.BackgroundColor3 = Color3.fromRGB(100, 40, 50)
+                    floatAimBtn.Text = "自瞄\n關閉"
+                    if not isAimbotEnabled then fovCircle.Visible = false end
+                end
+            end
+        end
+    end
+end)
+
+-- ==================== 核心 Aimbot / ESP / 連線 邏輯 ====================
+local function isPlayerTeammate(targetPlayer)
+    if not teamCheckEnabled then return false end
+    if manualTeammates[targetPlayer] then return true end
+    if targetPlayer.Team and LocalPlayer.Team and targetPlayer.Team == LocalPlayer.Team then return true end
+    if targetPlayer.TeamColor and LocalPlayer.TeamColor and targetPlayer.TeamColor == LocalPlayer.TeamColor then
+        if targetPlayer.TeamColor ~= Enum.BrickColor.White then return true end
+    end
+    return false
+end
+
+local hasDrawing = pcall(function() return Drawing.new("Line") end)
+
+RunService.RenderStepped:Connect(function(dt)
+    local camera = Workspace.CurrentCamera
+    if not camera then return end
+
+    -- 1. 更新 ESP (終極防重生版：掛在 GUI 上)
+    if espEnabled then
+        for _, p in ipairs(Players:GetPlayers()) do
+            -- 確保角色存在、有血條、且不是隊友
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and not isPlayerTeammate(p) then
+                local hl = espHighlights[p]
+                if not hl or not hl.Parent then
+                    hl = Instance.new("Highlight")
+                    hl.FillTransparency = 0.5
+                    hl.OutlineTransparency = 0
+                    hl.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+                    hl.Parent = gui -- 放在 UI 層，角色死了也不會被吃掉
+                    espHighlights[p] = hl
+                end
+                -- 每一幀強制綁定當前角色，重生也能瞬間恢復
+                hl.Adornee = p.Character
+                hl.FillColor = currentColor
+                hl.OutlineColor = currentColor
+            else
+                if espHighlights[p] then
+                    espHighlights[p]:Destroy()
+                    espHighlights[p] = nil
+                end
+            end
+        end
+    else
+        for _, hl in pairs(espHighlights) do if hl and hl.Parent then hl:Destroy() end end
+        espHighlights = {}
+    end
+
+    -- 2. 更新距離連線 (Tracer)
+    if tracerEnabled and hasDrawing then
+        local activeTargets = {}
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and not isPlayerTeammate(p) then
+                local hrp = p.Character:FindFirstChild("HumanoidRootPart")
+                if hrp then
+                    local pos, onScreen = camera:WorldToViewportPoint(hrp.Position)
+                    if onScreen then
+                        activeTargets[p] = Vector2.new(pos.X, pos.Y)
+                    end
+                end
+            end
+        end
+
+        for p, line in pairs(tracerLines) do
+            if not activeTargets[p] then
+                line:Remove()
+                tracerLines[p] = nil
+            end
+        end
+
+        local myChar = LocalPlayer.Character
+        local myHrp = myChar and myChar:FindFirstChild("HumanoidRootPart")
+        local fromPos = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y - 50)
+        if myHrp then
+            local myPos, myOnScreen = camera:WorldToViewportPoint(myHrp.Position)
+            if myOnScreen then
+                fromPos = Vector2.new(myPos.X, myPos.Y + 50)
+            end
+        end
+
+        for p, toPos in pairs(activeTargets) do
+            local line = tracerLines[p]
+            if not line then
+                line = Drawing.new("Line")
+                line.Thickness = 1.5
+                line.Transparency = 0.8
+                tracerLines[p] = line
+            end
+            line.Visible = true
+            line.From = fromPos
+            line.To = toPos
+            line.Color = currentColor
+        end
+    else
+        for p, line in pairs(tracerLines) do
+            line:Remove()
+            tracerLines[p] = nil
+        end
+    end
+
+    -- 3. 核心 Aimbot 邏輯
+    if not isAimbotEnabled and not isKeyAimbotActive then return end
+
+    local screenCenter = Vector2.new(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    local closestTarget = nil
+    local minDistance = fovRadius
+
+    local checkList = Players:GetPlayers()
+    if lockedPlayer then
+        checkList = {lockedPlayer}
+    end
+
+    for _, player in ipairs(checkList) do
+        if player ~= LocalPlayer and player.Character then
+            local char = player.Character
+            local humanoid = char:FindFirstChildOfClass("Humanoid")
+            
+            if humanoid and humanoid.Health > 0 then
+                local isTeammate = isPlayerTeammate(player)
+                if lockedPlayer then isTeammate = false end
+
+                if not isTeammate then
+                    local targetPartObj = char:FindFirstChild(targetPart)
+                    if not targetPartObj and targetPart == "LeftFoot" then
+                        targetPartObj = char:FindFirstChild("Left Leg") or char:FindFirstChild("RightFoot")
+                    end
+
+                    if targetPartObj then
+                        local screenPos, onScreen = camera:WorldToViewportPoint(targetPartObj.Position)
+                        if onScreen then
+                            local distance = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                            if distance < minDistance then
+                                local canSee = true
+                                if wallCheckEnabled then
+                                    local rayParams = RaycastParams.new()
+                                    rayParams.FilterDescendantsInstances = {LocalPlayer.Character, char}
+                                    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+                                    local rayResult = Workspace:Raycast(camera.CFrame.Position, targetPartObj.Position - camera.CFrame.Position, rayParams)
+                                    if rayResult then canSee = false end
+                                end
+
+                                if canSee then
+                                    minDistance = distance
+                                    closestTarget = targetPartObj
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+
+    if closestTarget then
+        local targetCFrame = CFrame.lookAt(camera.CFrame.Position, closestTarget.Position)
+        local alpha = math.clamp(smoothness * (dt * 60), 0, 1)
+        camera.CFrame = camera.CFrame:Lerp(targetCFrame, alpha)
+    end
+end)
+
+print("🎯 ESP 重生修復版 Aimbot 已載入")
