@@ -1,5 +1,5 @@
 --====================================================
--- 湊企鵝mod｜敵克製作 v2.4版本（新增其他功能頁面）
+-- 湊企鵝mod｜敵克製作 v2.5版本（擊殺音效移至主頁）
 --====================================================
 
 local Players = game:GetService("Players")
@@ -124,7 +124,7 @@ do
     loadingSubtitle.Size = UDim2.new(1, -40, 0, 30)
     loadingSubtitle.Position = UDim2.new(0, 20, 0.5, 40)
     loadingSubtitle.BackgroundTransparency = 1
-    loadingSubtitle.Text = "敵克製作 v2版本"
+    loadingSubtitle.Text = "敵克製作 v2.5版本"
     loadingSubtitle.TextColor3 = Color3.fromRGB(180, 180, 200)
     loadingSubtitle.TextSize = 20
     loadingSubtitle.Font = Enum.Font.Gotham
@@ -234,11 +234,11 @@ local function showToast(text)
     end)
 end
 
--- ==================== 主選單 ====================
+-- ==================== 主選單 (已將擊殺音效移至天空下方) ====================
 local main, mainScroll, statusLabel, toggleButton, timeButton, weatherButton
-local crosshairPageButton, settingPageButton, skyPageButton, perfPageButton, otherPageButton, musicPageButton, restoreButton
+local crosshairPageButton, settingPageButton, skyPageButton, killSoundPageButton, perfPageButton, otherPageButton, musicPageButton, restoreButton
 do
-    main = createMenu(320, 380, 950)
+    main = createMenu(320, 380, 1000)
     mainScroll = main:FindFirstChild("Scroll")
     createTitle(mainScroll, "湊企鵝mod")
     statusLabel = Instance.new("TextLabel")
@@ -251,16 +251,18 @@ do
     statusLabel.Font = Enum.Font.Gotham
     statusLabel.ZIndex = 1100
     statusLabel.Parent = mainScroll
+    
     toggleButton = createBtn(mainScroll, 85, "開啟光影", Color3.fromRGB(58, 75, 100))
     timeButton = createBtn(mainScroll, 135, "目前時間：夕陽", Color3.fromRGB(65, 95, 112))
     weatherButton = createBtn(mainScroll, 185, "目前天氣：晴天", Color3.fromRGB(65, 115, 105))
     crosshairPageButton = createBtn(mainScroll, 235, "自訂準心", Color3.fromRGB(90, 90, 125))
     settingPageButton = createBtn(mainScroll, 285, "畫面設定", Color3.fromRGB(100, 75, 135))
     skyPageButton = createBtn(mainScroll, 335, "天空", Color3.fromRGB(70, 100, 140))
-    perfPageButton = createBtn(mainScroll, 385, "效能監控", Color3.fromRGB(40, 90, 60))
-    otherPageButton = createBtn(mainScroll, 435, "其他功能", Color3.fromRGB(85, 80, 110))
-    musicPageButton = createBtn(mainScroll, 485, "音樂", Color3.fromRGB(80, 100, 150))
-    restoreButton = createBtn(mainScroll, 535, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
+    killSoundPageButton = createBtn(mainScroll, 385, "擊殺音效", Color3.fromRGB(110, 70, 130))
+    perfPageButton = createBtn(mainScroll, 435, "效能監控", Color3.fromRGB(40, 90, 60))
+    otherPageButton = createBtn(mainScroll, 485, "其他功能", Color3.fromRGB(85, 80, 110))
+    musicPageButton = createBtn(mainScroll, 535, "音樂", Color3.fromRGB(80, 100, 150))
+    restoreButton = createBtn(mainScroll, 585, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 end
 
 -- ==================== 全域狀態 ====================
@@ -882,7 +884,6 @@ do
     local antiFlingButton = createBtn(otherScroll, 52, "防擊飛", Color3.fromRGB(70, 100, 140), 40)
     local antiAfkButton = createBtn(otherScroll, 100, "Anti-AFK", Color3.fromRGB(70, 120, 90), 40)
 
-    -- 提示文字
     local hint1 = Instance.new("TextLabel")
     hint1.Size = UDim2.new(1, -30, 0, 44)
     hint1.Position = UDim2.fromOffset(15, 148)
@@ -915,7 +916,6 @@ do
     otherDone.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
     otherPageButton.Activated:Connect(function() closeAllMenus(); otherMenu.Visible = true end)
 
-    -- ===== 防擊飛 =====
     local function disablePlayerCollision(character)
         if not character then return end
         for _, part in ipairs(character:GetChildren()) do
@@ -966,7 +966,6 @@ do
         end
     end)
 
-    -- ===== Anti-AFK =====
     local function startAntiAfk()
         if antiAfkConn then return end
         antiAfkConn = Player.Idled:Connect(function()
@@ -995,6 +994,138 @@ do
             showToast("Anti-AFK 已關閉")
         end
     end)
+end
+
+-- ==================== 擊殺音效頁面 (完美整合) ====================
+local killSoundMenu
+local killSoundEnabled = false
+local currentKillSoundId = nil
+local lastPlayTime = 0
+local targetStatus = {} 
+local isFiring = false
+local fireLoopTask = nil
+
+local function playKillSound()
+    if not killSoundEnabled or not currentKillSoundId then return end
+    if os.clock() - lastPlayTime < 0.4 then return end
+    lastPlayTime = os.clock()
+    local sound = Instance.new("Sound")
+    sound.SoundId = "rbxassetid://" .. currentKillSoundId
+    sound.Volume = 2
+    SoundService:PlayLocalSound(sound)
+    task.delay(5, function() if sound then sound:Destroy() end end)
+end
+
+local function processKillTarget(humanoid)
+    if not humanoid or targetStatus[humanoid] == "Done" then return end
+    if humanoid.Health <= 0 then
+        playKillSound()
+        targetStatus[humanoid] = "Done"
+        task.delay(10, function() if targetStatus[humanoid] == "Done" then targetStatus[humanoid] = nil end end)
+        return
+    end
+    if targetStatus[humanoid] == nil then
+        targetStatus[humanoid] = "Playing"
+        local diedConn
+        diedConn = humanoid.Died:Connect(function()
+            if targetStatus[humanoid] ~= "Done" then
+                playKillSound()
+                targetStatus[humanoid] = "Done"
+                task.delay(10, function() if targetStatus[humanoid] == "Done" then targetStatus[humanoid] = nil end end)
+            end
+            if diedConn then diedConn:Disconnect() end
+        end)
+        task.delay(8, function()
+            if diedConn then diedConn:Disconnect() end
+            if targetStatus[humanoid] == "Playing" then targetStatus[humanoid] = nil end
+        end)
+    end
+end
+
+local function doHitRegistration()
+    local camera = workspace.CurrentCamera
+    local myChar = Player.Character
+    if not camera or not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
+    local myPos = myChar.HumanoidRootPart.Position
+
+    local ray = camera:ViewportPointToRay(camera.ViewportSize.X / 2, camera.ViewportSize.Y / 2)
+    local rayParams = RaycastParams.new()
+    rayParams.FilterDescendantsInstances = {myChar}
+    rayParams.FilterType = Enum.RaycastFilterType.Exclude
+    local result = workspace:Raycast(ray.Origin, ray.Direction * 5000, rayParams)
+    local targetPos = nil
+
+    if result and result.Instance then
+        local hitModel = result.Instance:FindFirstAncestorOfClass("Model")
+        local humanoid = hitModel and hitModel:FindFirstChildOfClass("Humanoid")
+        if humanoid then processKillTarget(humanoid) else targetPos = result.Position end
+    end
+
+    local targets = {}
+    for _, p in ipairs(Players:GetPlayers()) do if p ~= Player and p.Character then table.insert(targets, p.Character) end end
+    for _, c in ipairs(workspace:GetChildren()) do if c:IsA("Model") and c:FindFirstChild("Humanoid") and c ~= myChar then table.insert(targets, c) end end
+
+    for _, model in ipairs(targets) do
+        local hrp = model:FindFirstChild("HumanoidRootPart")
+        local humanoid = model:FindFirstChildOfClass("Humanoid")
+        if hrp and humanoid then
+            if targetPos and (targetPos - hrp.Position).Magnitude <= 30 then processKillTarget(humanoid) end
+            if (myPos - hrp.Position).Magnitude <= 20 then processKillTarget(humanoid) end
+        end
+    end
+end
+
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed or not killSoundEnabled then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        isFiring = true
+        if fireLoopTask then return end
+        fireLoopTask = task.spawn(function()
+            while isFiring do
+                if killSoundEnabled then doHitRegistration() end
+                task.wait(0.15)
+            end
+            fireLoopTask = nil
+        end)
+    end
+end)
+UIS.InputEnded:Connect(function(input, gameProcessed)
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isFiring = false end
+end)
+
+do
+    killSoundMenu = createMenu(320, 380, 750)
+    local killScroll = killSoundMenu:FindFirstChild("Scroll")
+    createTitle(killScroll, "擊殺音效選擇")
+
+    local soundList = {
+        {name = "幹哩洗勒啥小啦拎娘擊敗", id = "8189297036"}, {name = "你嗎逼的怎麼那麼自私 我草擬嗎", id = "7334239757"},
+        {name = "Monster kill", id = "130772284"}, {name = "Cs", id = "18315629371"}, {name = "曼波", id = "119974879573475"},
+        {name = "Where are you going", id = "120485241925186"}, {name = "Vine boom", id = "89674764872022"},
+        {name = "雞叫", id = "117909139728666"}, {name = "都哎呦（？", id = "112625658963831"},
+        {name = "Oh my god", id = "336771379"}, {name = "Fbi open door", id = "102865919016574"}, {name = "Heheha", id = "114072050006157"}
+    }
+
+    local btnY = 52
+    for _, item in ipairs(soundList) do
+        local b = createBtn(killScroll, btnY, item.name, Color3.fromRGB(60, 90, 130), 38)
+        b.Activated:Connect(function()
+            currentKillSoundId = item.id
+            killSoundEnabled = true
+            showToast("已切換擊殺音效：" .. item.name)
+        end)
+        btnY = btnY + 44
+    end
+
+    local closeKillSoundBtn = createBtn(killScroll, btnY, "恢復原本遊戲擊殺聲音", Color3.fromRGB(120, 70, 70), 38)
+    closeKillSoundBtn.Activated:Connect(function()
+        killSoundEnabled = false; currentKillSoundId = nil; showToast("已關閉擊殺音效")
+    end)
+    btnY = btnY + 44
+
+    local killSoundDoneBtn = createBtn(killScroll, btnY, "完成", Color3.fromRGB(92, 65, 76), 38)
+    killSoundDoneBtn.Activated:Connect(function() closeAllMenus(); main.Visible = true end)
+    killSoundPageButton.Activated:Connect(function() closeAllMenus(); killSoundMenu.Visible = true end)
 end
 
 -- ==================== 天氣頁面 ====================
@@ -2111,7 +2242,7 @@ end
 do
     local saveSectionTitle = Instance.new("TextLabel")
     saveSectionTitle.Size = UDim2.new(1, -30, 0, 24)
-    saveSectionTitle.Position = UDim2.fromOffset(15, 590)
+    saveSectionTitle.Position = UDim2.fromOffset(15, 640)
     saveSectionTitle.BackgroundTransparency = 1
     saveSectionTitle.Text = "── 設定存檔 ──"
     saveSectionTitle.TextColor3 = Color3.fromRGB(200, 210, 230)
@@ -2122,7 +2253,7 @@ do
 
     local presetNameBox = Instance.new("TextBox")
     presetNameBox.Size = UDim2.new(1, -30, 0, 38)
-    presetNameBox.Position = UDim2.fromOffset(15, 618)
+    presetNameBox.Position = UDim2.fromOffset(15, 668)
     presetNameBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
     presetNameBox.TextColor3 = Color3.fromRGB(240, 240, 240)
     presetNameBox.TextSize = 15
@@ -2134,13 +2265,13 @@ do
     presetNameBox.ClearTextOnFocus = false
     local pnbc = Instance.new("UICorner"); pnbc.CornerRadius = UDim.new(0, 10); pnbc.Parent = presetNameBox
 
-    local presetSaveBtn = createBtn(mainScroll, 664, "存檔", Color3.fromRGB(70, 120, 90), 38)
-    local presetViewBtn = createBtn(mainScroll, 708, "查看存檔 ▼", Color3.fromRGB(70, 90, 130), 38)
+    local presetSaveBtn = createBtn(mainScroll, 714, "存檔", Color3.fromRGB(70, 120, 90), 38)
+    local presetViewBtn = createBtn(mainScroll, 758, "查看存檔 ▼", Color3.fromRGB(70, 90, 130), 38)
 
     presetSaveListFrame = Instance.new("Frame")
     presetSaveListFrame.Name = "PresetList"
     presetSaveListFrame.Size = UDim2.new(1, -30, 0, 200)
-    presetSaveListFrame.Position = UDim2.fromOffset(15, 752)
+    presetSaveListFrame.Position = UDim2.fromOffset(15, 802)
     presetSaveListFrame.BackgroundTransparency = 1
     presetSaveListFrame.Visible = false
     presetSaveListFrame.ZIndex = 1100
@@ -2257,7 +2388,7 @@ do
 end
 
 -- ==================== 收尾 ====================
-allMenus = { main, timeMenu, skyMenu, perfMenu, otherMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu }
+allMenus = { main, timeMenu, skyMenu, perfMenu, otherMenu, weatherMenu, crosshairMenu, settingMenu, musicMenu, killSoundMenu }
 UIS.InputBegan:Connect(function(input, processed)
     if processed then return end
     if input.KeyCode == Enum.KeyCode.I then
@@ -2267,249 +2398,4 @@ UIS.InputBegan:Connect(function(input, processed)
     end
 end)
 
-print("湊企鵝mod：敵克製作 v2.4版本已載入（新增其他功能頁面）")
---====================================================
--- 【擊殺音效外掛】請直接貼在腳本最下方，不影響原版
---====================================================
-task.spawn(function()
-    local PG = game:GetService("Players").LocalPlayer:WaitForChild("PlayerGui")
-    local UIS = game:GetService("UserInputService")
-    local SS = game:GetService("SoundService")
-    local WS = game:GetService("Workspace")
-
-    -- 等待原版選單加載出來
-    local targetGui, otherScroll
-    while not otherScroll do
-        task.wait(1)
-        for _, v in pairs(PG:GetChildren()) do
-            if v.Name:find("PenguinMod") or v.Name:find("PM_") then
-                targetGui = v
-                for _, obj in pairs(v:GetDescendants()) do
-                    if obj:IsA("TextLabel") and obj.Text == "其他功能" then
-                        otherScroll = obj.Parent
-                        break
-                    end
-                end
-            end
-        end
-    end
-
-    -- 把你原本的「完成」按鈕往下移，騰出空間
-    for _, c in pairs(otherScroll:GetChildren()) do
-        if c:IsA("TextButton") and c.Text == "完成" then
-            c.Position = UDim2.fromOffset(15, 290)
-        end
-    end
-
-    -- 在原版選單裡塞入「擊殺音效」按鈕
-    local killPageBtn = Instance.new("TextButton")
-    killPageBtn.Size = UDim2.new(1, -30, 0, 40)
-    killPageBtn.Position = UDim2.fromOffset(15, 148)
-    killPageBtn.BackgroundColor3 = Color3.fromRGB(110, 70, 130)
-    killPageBtn.Text = "擊殺音效"
-    killPageBtn.TextColor3 = Color3.fromRGB(242, 242, 242)
-    killPageBtn.TextSize = 16
-    killPageBtn.Font = Enum.Font.GothamBold
-    killPageBtn.ZIndex = 1100
-    killPageBtn.Parent = otherScroll
-    Instance.new("UICorner", killPageBtn).CornerRadius = UDim.new(0, 10)
-    local ks = Instance.new("UIStroke", killPageBtn); ks.Color = Color3.fromRGB(0, 255, 255); ks.Thickness = 1.5
-
-    -- 建立擊殺音效獨立選單
-    local killMenu = Instance.new("Frame")
-    killMenu.Size = UDim2.fromOffset(320, 380)
-    killMenu.Position = UDim2.new(0.5, -160, 0.5, -190)
-    killMenu.BackgroundColor3 = Color3.fromRGB(24, 27, 39)
-    killMenu.Visible = false
-    killMenu.ZIndex = 1500
-    killMenu.Parent = targetGui
-    Instance.new("UICorner", killMenu).CornerRadius = UDim.new(0, 16)
-    local kms = Instance.new("UIStroke", killMenu); kms.Color = Color3.fromRGB(0, 255, 255); kms.Thickness = 2
-
-    local killScroll = Instance.new("ScrollingFrame")
-    killScroll.Size = UDim2.new(1, 0, 1, 0)
-    killScroll.BackgroundTransparency = 1
-    killScroll.BorderSizePixel = 0
-    killScroll.ScrollBarThickness = 6
-    killScroll.CanvasSize = UDim2.new(0, 0, 0, 750)
-    killScroll.ZIndex = 1501
-    killScroll.Parent = killMenu
-
-    local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -30, 0, 42)
-    title.Position = UDim2.fromOffset(15, 8)
-    title.BackgroundTransparency = 1
-    title.Text = "擊殺音效選擇"
-    title.TextColor3 = Color3.fromRGB(230, 215, 145)
-    title.TextSize = 22
-    title.Font = Enum.Font.GothamBold
-    title.ZIndex = 1502
-    title.Parent = killScroll
-
-    -- 擊殺判定核心邏輯
-    local killSoundEnabled = false
-    local currentKillSoundId = nil
-    local lastPlayTime = 0
-    local targetStatus = {} 
-    local isFiring = false
-    local fireLoopTask = nil
-
-    local function playSound()
-        if not killSoundEnabled or not currentKillSoundId then return end
-        if os.clock() - lastPlayTime < 0.4 then return end
-        lastPlayTime = os.clock()
-        local s = Instance.new("Sound")
-        s.SoundId = "rbxassetid://" .. currentKillSoundId
-        s.Volume = 2
-        SS:PlayLocalSound(s)
-        task.delay(5, function() if s then s:Destroy() end end)
-    end
-
-    local function processTarget(hum)
-        if not hum or targetStatus[hum] == "Done" then return end
-        if hum.Health <= 0 then
-            playSound()
-            targetStatus[hum] = "Done"
-            task.delay(10, function() if targetStatus[hum] == "Done" then targetStatus[hum] = nil end end)
-            return
-        end
-        if targetStatus[hum] == nil then
-            targetStatus[hum] = "Playing"
-            local conn
-            conn = hum.Died:Connect(function()
-                if targetStatus[hum] ~= "Done" then
-                    playSound()
-                    targetStatus[hum] = "Done"
-                    task.delay(10, function() if targetStatus[hum] == "Done" then targetStatus[hum] = nil end end)
-                end
-                if conn then conn:Disconnect() end
-            end)
-            task.delay(8, function()
-                if conn then conn:Disconnect() end
-                if targetStatus[hum] == "Playing" then targetStatus[hum] = nil end
-            end)
-        end
-    end
-
-    local function doHitCheck()
-        local cam = WS.CurrentCamera
-        local myChar = game:GetService("Players").LocalPlayer.Character
-        if not cam or not myChar or not myChar:FindFirstChild("HumanoidRootPart") then return end
-        local myPos = myChar.HumanoidRootPart.Position
-
-        local ray = cam:ViewportPointToRay(cam.ViewportSize.X / 2, cam.ViewportSize.Y / 2)
-        local rp = RaycastParams.new()
-        rp.FilterDescendantsInstances = {myChar}
-        rp.FilterType = Enum.RaycastFilterType.Exclude
-        local res = WS:Raycast(ray.Origin, ray.Direction * 5000, rp)
-        local tPos = nil
-
-        if res and res.Instance then
-            local m = res.Instance:FindFirstAncestorOfClass("Model")
-            local h = m and m:FindFirstChildOfClass("Humanoid")
-            if h then processTarget(h) else tPos = res.Position end
-        end
-
-        local targets = {}
-        for _, p in ipairs(game:GetService("Players"):GetPlayers()) do if p ~= game:GetService("Players").LocalPlayer and p.Character then table.insert(targets, p.Character) end end
-        for _, c in ipairs(WS:GetChildren()) do if c:IsA("Model") and c:FindFirstChild("Humanoid") and c ~= myChar then table.insert(targets, c) end end
-
-        for _, model in ipairs(targets) do
-            local hrp = model:FindFirstChild("HumanoidRootPart")
-            local hum = model:FindFirstChildOfClass("Humanoid")
-            if hrp and hum then
-                if tPos and (tPos - hrp.Position).Magnitude <= 30 then processTarget(hum) end
-                if (myPos - hrp.Position).Magnitude <= 20 then processTarget(hum) end
-            end
-        end
-    end
-
-    UIS.InputBegan:Connect(function(input, gp)
-        if gp or not killSoundEnabled then return end
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            isFiring = true
-            if fireLoopTask then return end
-            fireLoopTask = task.spawn(function()
-                while isFiring do
-                    if killSoundEnabled then doHitCheck() end
-                    task.wait(0.15)
-                end
-                fireLoopTask = nil
-            end)
-        end
-    end)
-    UIS.InputEnded:Connect(function(input, gp)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then isFiring = false end
-    end)
-
-    -- 建立音效按鈕
-    local sList = {
-        {name = "幹哩洗勒啥小啦拎娘擊敗", id = "8189297036"}, {name = "你嗎逼的怎麼那麼自私 我草擬嗎", id = "7334239757"},
-        {name = "Monster kill", id = "130772284"}, {name = "Cs", id = "18315629371"}, {name = "曼波", id = "119974879573475"},
-        {name = "Where are you going", id = "120485241925186"}, {name = "Vine boom", id = "89674764872022"},
-        {name = "雞叫", id = "117909139728666"}, {name = "都哎呦（？", id = "112625658963831"},
-        {name = "Oh my god", id = "336771379"}, {name = "Fbi open door", id = "102865919016574"}, {name = "Heheha", id = "114072050006157"}
-    }
-
-    local btnY = 52
-    for _, item in ipairs(sList) do
-        local b = Instance.new("TextButton")
-        b.Size = UDim2.new(1, -30, 0, 38)
-        b.Position = UDim2.fromOffset(15, btnY)
-        b.BackgroundColor3 = Color3.fromRGB(60, 90, 130)
-        b.Text = item.name
-        b.TextColor3 = Color3.fromRGB(242, 242, 242)
-        b.TextSize = 16
-        b.Font = Enum.Font.GothamBold
-        b.ZIndex = 1502
-        b.Parent = killScroll
-        Instance.new("UICorner", b).CornerRadius = UDim.new(0, 10)
-        b.Activated:Connect(function()
-            currentKillSoundId = item.id
-            killSoundEnabled = true
-        end)
-        btnY = btnY + 44
-    end
-
-    local closeBtn = Instance.new("TextButton")
-    closeBtn.Size = UDim2.new(1, -30, 0, 38)
-    closeBtn.Position = UDim2.fromOffset(15, btnY)
-    closeBtn.BackgroundColor3 = Color3.fromRGB(120, 70, 70)
-    closeBtn.Text = "恢復原本遊戲擊殺聲音"
-    closeBtn.TextColor3 = Color3.fromRGB(242, 242, 242)
-    closeBtn.TextSize = 16
-    closeBtn.Font = Enum.Font.GothamBold
-    closeBtn.ZIndex = 1502
-    closeBtn.Parent = killScroll
-    Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 10)
-    closeBtn.Activated:Connect(function() killSoundEnabled = false; currentKillSoundId = nil end)
-    btnY = btnY + 44
-
-    local doneBtn = Instance.new("TextButton")
-    doneBtn.Size = UDim2.new(1, -30, 0, 38)
-    doneBtn.Position = UDim2.fromOffset(15, btnY)
-    doneBtn.BackgroundColor3 = Color3.fromRGB(92, 65, 76)
-    doneBtn.Text = "完成"
-    doneBtn.TextColor3 = Color3.fromRGB(242, 242, 242)
-    doneBtn.TextSize = 16
-    doneBtn.Font = Enum.Font.GothamBold
-    doneBtn.ZIndex = 1502
-    doneBtn.Parent = killScroll
-    Instance.new("UICorner", doneBtn).CornerRadius = UDim.new(0, 10)
-
-    -- 按鈕點擊事件
-    killPageBtn.Activated:Connect(function()
-        -- 關閉原版所有選單
-        for _, child in ipairs(targetGui:GetChildren()) do
-            if child:IsA("Frame") and child.Visible then
-                child.Visible = false
-            end
-        end
-        killMenu.Visible = true
-    end)
-    
-    doneBtn.Activated:Connect(function()
-        killMenu.Visible = false
-        otherScroll.Parent.Visible = true
-    end)
-end)
+print("湊企鵝mod：敵克製作 v2.5版本已載入（擊殺音效移至主頁）")
