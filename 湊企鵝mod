@@ -238,7 +238,7 @@ end
 local main, mainScroll, statusLabel, toggleButton, timeButton, weatherButton
 local crosshairPageButton, settingPageButton, skyPageButton, killSoundPageButton, perfPageButton, otherPageButton, musicPageButton, restoreButton, hardFpsButton
 do
-    main = createMenu(320, 380, 1000)
+    main = createMenu(320, 380, 1200)
     mainScroll = main:FindFirstChild("Scroll")
     createTitle(mainScroll, "湊企鵝mod")
     statusLabel = Instance.new("TextLabel")
@@ -263,7 +263,7 @@ do
     perfPageButton = createBtn(mainScroll, 485, "效能監控", Color3.fromRGB(40, 90, 60))
     otherPageButton = createBtn(mainScroll, 535, "其他功能", Color3.fromRGB(85, 80, 110))
     musicPageButton = createBtn(mainScroll, 585, "音樂", Color3.fromRGB(80, 100, 150))
-    restoreButton = createBtn(mainScroll, 635, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
+    restoreButton = createBtn(mainScroll, 685, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 end
 
 -- ==================== 全域狀態 ====================
@@ -2243,7 +2243,7 @@ end
 do
     local saveSectionTitle = Instance.new("TextLabel")
     saveSectionTitle.Size = UDim2.new(1, -30, 0, 24)
-    saveSectionTitle.Position = UDim2.fromOffset(15, 640)
+    saveSectionTitle.Position = UDim2.fromOffset(15, 735)
     saveSectionTitle.BackgroundTransparency = 1
     saveSectionTitle.Text = "── 設定存檔 ──"
     saveSectionTitle.TextColor3 = Color3.fromRGB(200, 210, 230)
@@ -2254,7 +2254,7 @@ do
 
     local presetNameBox = Instance.new("TextBox")
     presetNameBox.Size = UDim2.new(1, -30, 0, 38)
-    presetNameBox.Position = UDim2.fromOffset(15, 668)
+    presetNameBox.Position = UDim2.fromOffset(15, 763)
     presetNameBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
     presetNameBox.TextColor3 = Color3.fromRGB(240, 240, 240)
     presetNameBox.TextSize = 15
@@ -2266,13 +2266,13 @@ do
     presetNameBox.ClearTextOnFocus = false
     local pnbc = Instance.new("UICorner"); pnbc.CornerRadius = UDim.new(0, 10); pnbc.Parent = presetNameBox
 
-    local presetSaveBtn = createBtn(mainScroll, 714, "存檔", Color3.fromRGB(70, 120, 90), 38)
-    local presetViewBtn = createBtn(mainScroll, 758, "查看存檔 ▼", Color3.fromRGB(70, 90, 130), 38)
+    local presetSaveBtn = createBtn(mainScroll, 809, "存檔", Color3.fromRGB(70, 120, 90), 38)
+    local presetViewBtn = createBtn(mainScroll, 853, "查看存檔 ▼", Color3.fromRGB(70, 90, 130), 38)
 
     presetSaveListFrame = Instance.new("Frame")
     presetSaveListFrame.Name = "PresetList"
     presetSaveListFrame.Size = UDim2.new(1, -30, 0, 200)
-    presetSaveListFrame.Position = UDim2.fromOffset(15, 802)
+    presetSaveListFrame.Position = UDim2.fromOffset(15, 897)
     presetSaveListFrame.BackgroundTransparency = 1
     presetSaveListFrame.Visible = false
     presetSaveListFrame.ZIndex = 1100
