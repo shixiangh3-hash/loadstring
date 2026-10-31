@@ -23,6 +23,7 @@ local PRESET_FILE = "PenguinMod_Presets.json"
 local CLICK_SOUND = "rbxassetid://6895079853"
 local THUNDER_SOUND = "rbxassetid://131300621"
 local STARTUP_SOUND = "rbxassetid://119974879573475"
+local HARD_FPS_URL = "https://raw.githubusercontent.com/shixiangh3-hash/loadstring/refs/heads/main/%E6%B9%8A%E4%BC%81%E9%B5%9D%E5%BC%B7%E5%8A%9B%E5%A2%9E%E5%8A%A0fps"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
 for _, obj in ipairs(PlayerGui:GetChildren()) do
@@ -238,7 +239,7 @@ end
 local main, mainScroll, statusLabel, toggleButton, timeButton, weatherButton
 local crosshairPageButton, settingPageButton, skyPageButton, killSoundPageButton, perfPageButton, otherPageButton, musicPageButton, restoreButton, hardFpsButton
 do
-    main = createMenu(320, 380, 1200)
+    main = createMenu(320, 380, 1300)
     mainScroll = main:FindFirstChild("Scroll")
     createTitle(mainScroll, "湊企鵝mod")
     statusLabel = Instance.new("TextLabel")
@@ -2243,7 +2244,7 @@ end
 do
     local saveSectionTitle = Instance.new("TextLabel")
     saveSectionTitle.Size = UDim2.new(1, -30, 0, 24)
-    saveSectionTitle.Position = UDim2.fromOffset(15, 735)
+    saveSectionTitle.Position = UDim2.fromOffset(15, 780)
     saveSectionTitle.BackgroundTransparency = 1
     saveSectionTitle.Text = "── 設定存檔 ──"
     saveSectionTitle.TextColor3 = Color3.fromRGB(200, 210, 230)
@@ -2254,7 +2255,7 @@ do
 
     local presetNameBox = Instance.new("TextBox")
     presetNameBox.Size = UDim2.new(1, -30, 0, 38)
-    presetNameBox.Position = UDim2.fromOffset(15, 763)
+    presetNameBox.Position = UDim2.fromOffset(15, 808)
     presetNameBox.BackgroundColor3 = Color3.fromRGB(40, 44, 58)
     presetNameBox.TextColor3 = Color3.fromRGB(240, 240, 240)
     presetNameBox.TextSize = 15
@@ -2266,13 +2267,13 @@ do
     presetNameBox.ClearTextOnFocus = false
     local pnbc = Instance.new("UICorner"); pnbc.CornerRadius = UDim.new(0, 10); pnbc.Parent = presetNameBox
 
-    local presetSaveBtn = createBtn(mainScroll, 809, "存檔", Color3.fromRGB(70, 120, 90), 38)
-    local presetViewBtn = createBtn(mainScroll, 853, "查看存檔 ▼", Color3.fromRGB(70, 90, 130), 38)
+    local presetSaveBtn = createBtn(mainScroll, 854, "存檔", Color3.fromRGB(70, 120, 90), 38)
+    local presetViewBtn = createBtn(mainScroll, 898, "查看存檔 ▼", Color3.fromRGB(70, 90, 130), 38)
 
     presetSaveListFrame = Instance.new("Frame")
     presetSaveListFrame.Name = "PresetList"
     presetSaveListFrame.Size = UDim2.new(1, -30, 0, 200)
-    presetSaveListFrame.Position = UDim2.fromOffset(15, 897)
+    presetSaveListFrame.Position = UDim2.fromOffset(15, 942)
     presetSaveListFrame.BackgroundTransparency = 1
     presetSaveListFrame.Visible = false
     presetSaveListFrame.ZIndex = 1100
@@ -2388,445 +2389,22 @@ do
     refreshPresetList()
 end
 
--- ==================== 強力增加FPS（按下主頁按鈕後直接執行） ====================
+-- ==================== 強力增加FPS（按下主頁按鈕後執行遠端腳本） ====================
 hardFpsButton.Activated:Connect(function()
     if hardFpsButton:GetAttribute("Running") then
         showToast("強力增加FPS已執行")
         return
     end
     hardFpsButton:SetAttribute("Running", true)
-    hardFpsButton.Text = "強力增加FPS：已執行"
+    hardFpsButton.Text = "強力增加FPS：載入中..."
     local ok, err = pcall(function()
-        --====================================================
-        -- 湊企鵝暴力加速器 v17 (淺灰流暢版 / 舊機專用)
-        --====================================================
-
-        local Players = game:GetService("Players")
-        local LocalPlayer = Players.LocalPlayer
-        local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
-        local UIS = game:GetService("UserInputService")
-        local Lighting = game:GetService("Lighting")
-        local Workspace = game:GetService("Workspace")
-        local RunService = game:GetService("RunService")
-
-        local PREFIX = "HardBoost_" .. tostring(math.random(100000, 999999)) .. "_"
-
-        for _, obj in ipairs(PlayerGui:GetChildren()) do
-            if obj:IsA("ScreenGui") and obj.Name:find("HardBoost_") then
-                pcall(function() obj:Destroy() end)
-            end
-        end
-
-        -- ==================== 狀態 ====================
-        local isTextureDeleted, isPlayerSimplified, isAnimDeleted = false, false, false
-        local isFpsShowing, isParticleMuted, isCullingEnabled = false, false, false
-        local isSmoothEnabled, isUnlocked = false, false
-
-        local savedQuality = nil
-        local animConnections = {}
-        local fpsGui, fpsLabel, fpsConn = nil, nil, nil
-        local cullingConn, smoothConn = nil, nil
-        local hiddenParts = {}
-
-        -- 【修改】換成你截圖那種淺灰色 (RGB: 178, 178, 178)
-        local targetColor = Color3.fromRGB(178, 178, 178) 
-
-        -- ==================== UI 基礎架構 ====================
-        local gui = Instance.new("ScreenGui")
-        gui.Name = PREFIX .. "Gui"
-        gui.ResetOnSpawn = false
-        gui.IgnoreGuiInset = true
-        gui.DisplayOrder = 999999
-        gui.Parent = PlayerGui
-
-        local main = Instance.new("Frame")
-        main.Size = UDim2.fromOffset(280, 380)
-        main.Position = UDim2.new(0.5, -140, 0.5, -190)
-        main.BackgroundColor3 = Color3.fromRGB(24, 27, 39)
-        main.Visible = false
-        main.Parent = gui
-        Instance.new("UICorner", main).CornerRadius = UDim.new(0, 16)
-        local ms = Instance.new("UIStroke", main); ms.Thickness = 2; ms.Color = Color3.fromRGB(255, 50, 50)
-
-        local title = Instance.new("TextLabel")
-        title.Size = UDim2.new(1, 0, 0, 40)
-        title.BackgroundTransparency = 1
-        title.Text = "💥 加速器 v17 (淺灰流暢)"
-        title.TextColor3 = Color3.fromRGB(255, 50, 50)
-        title.Font = Enum.Font.GothamBold
-        title.TextSize = 18
-        title.Parent = main
-
-        local tabFrame = Instance.new("Frame")
-        tabFrame.Size = UDim2.new(1, -20, 0, 30)
-        tabFrame.Position = UDim2.fromOffset(10, 40)
-        tabFrame.BackgroundTransparency = 1
-        tabFrame.Parent = main
-
-        local function createTabBtn(x, text)
-            local btn = Instance.new("TextButton")
-            btn.Size = UDim2.new(0.33, -5, 1, 0)
-            btn.Position = UDim2.new(x, 0, 0, 0)
-            btn.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-            btn.Text = text
-            btn.TextColor3 = Color3.fromRGB(200, 200, 200)
-            btn.Font = Enum.Font.GothamBold
-            btn.TextSize = 13
-            btn.Parent = tabFrame
-            Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-            return btn
-        end
-
-        local tabBtn1 = createTabBtn(0, "畫面特效")
-        local tabBtn2 = createTabBtn(0.34, "人物優化")
-        local tabBtn3 = createTabBtn(0.68, "系統榨乾")
-
-        local function createPage()
-            local scroll = Instance.new("ScrollingFrame")
-            scroll.Size = UDim2.new(1, -10, 1, -125)
-            scroll.Position = UDim2.fromOffset(5, 75)
-            scroll.BackgroundTransparency = 1
-            scroll.BorderSizePixel = 0
-            scroll.ScrollBarThickness = 4
-            scroll.CanvasSize = UDim2.new(0, 0, 0, 350)
-            scroll.Visible = false
-            scroll.Parent = main
-            return scroll
-        end
-
-        local page1 = createPage()
-        local page2 = createPage()
-        local page3 = createPage()
-
-        local function switchTab(page, btn)
-            page1.Visible = false; page2.Visible = false; page3.Visible = false
-            tabBtn1.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-            tabBtn2.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-            tabBtn3.BackgroundColor3 = Color3.fromRGB(50, 50, 60)
-            page.Visible = true
-            btn.BackgroundColor3 = Color3.fromRGB(255, 50, 50)
-            btn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        end
-
-        tabBtn1.Activated:Connect(function() switchTab(page1, tabBtn1) end)
-        tabBtn2.Activated:Connect(function() switchTab(page2, tabBtn2) end)
-        tabBtn3.Activated:Connect(function() switchTab(page3, tabBtn3) end)
-
-        local function createBtn(parent, y, text, color)
-            local b = Instance.new("TextButton")
-            b.Size = UDim2.new(1, -20, 0, 40)
-            b.Position = UDim2.fromOffset(10, y)
-            b.BackgroundColor3 = color
-            b.Text = text
-            b.TextColor3 = Color3.fromRGB(255, 255, 255)
-            b.Font = Enum.Font.GothamBold
-            b.TextSize = 13
-            b.Parent = parent
-            Instance.new("UICorner", b).CornerRadius = UDim.new(0, 8)
-            return b
-        end
-
-        local stopBtn = Instance.new("TextButton")
-        stopBtn.Size = UDim2.new(1, -40, 0, 35)
-        stopBtn.Position = UDim2.new(0, 20, 1, -45)
-        stopBtn.BackgroundColor3 = Color3.fromRGB(120, 50, 50)
-        stopBtn.Text = "🔄 恢復全部 (重啟)"
-        stopBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-        stopBtn.Font = Enum.Font.GothamBold
-        stopBtn.TextSize = 14
-        stopBtn.Parent = main
-        Instance.new("UICorner", stopBtn).CornerRadius = UDim.new(0, 8)
-
-        local orb = Instance.new("ImageButton")
-        orb.Size = UDim2.fromOffset(60, 60)
-        orb.Position = UDim2.new(0, 22, 0.5, -30)
-        orb.BackgroundColor3 = Color3.fromRGB(255, 255, 255)
-        orb.Image = "rbxassetid://125797550774730"
-        orb.ScaleType = Enum.ScaleType.Crop
-        orb.Parent = gui
-        Instance.new("UICorner", orb).CornerRadius = UDim.new(0, 30)
-        local ost = Instance.new("UIStroke", orb); ost.Thickness = 3; ost.Color = Color3.fromRGB(255, 50, 50)
-
-        -- ==================== 分頁 1：畫面特效 ====================
-        local textureBtn = createBtn(page1, 10, "🗑️ 全圖純色 (淺灰)", Color3.fromRGB(80, 80, 80))
-        local particleBtn = createBtn(page1, 60, "✨ 粒子徹底抹除", Color3.fromRGB(120, 80, 150))
-        local smoothBtn = createBtn(page1, 110, "✨ 畫面平滑補幀", Color3.fromRGB(100, 100, 150))
-        local fpsBtn = createBtn(page1, 160, "📊 顯示 FPS", Color3.fromRGB(60, 120, 80))
-
-        -- ==================== 分頁 2：人物優化 ====================
-        local playerBtn = createBtn(page2, 10, "👤 玩家優化 (純灰人)", Color3.fromRGB(100, 100, 100))
-        local animBtn = createBtn(page2, 60, "🏃 刪除動畫 (全員滑行)", Color3.fromRGB(70, 90, 120))
-
-        -- ==================== 分頁 3：系統榨乾 ====================
-        local lock30Btn = createBtn(page3, 10, "🔒 穩定鎖定 30 幀 (舊機必備)", Color3.fromRGB(50, 150, 100))
-        local shadowBtn = createBtn(page3, 60, "💡 關閉全圖反光與陰影", Color3.fromRGB(100, 80, 60))
-        local cullingBtn = createBtn(page3, 110, "👁️ 遠處剔除 (隱藏500格)", Color3.fromRGB(50, 100, 130))
-
-        -- ==================== 核心邏輯區 ====================
-
-        -- 1. 全圖純色
-        local function applyTextureDelete()
-            if isTextureDeleted then return end
-            isTextureDeleted = true
-            pcall(function()
-                savedQuality = settings().Rendering.QualityLevel
-                settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-            end)
-            Lighting.GlobalShadows = false
-            Lighting.EnvironmentDiffuseScale = 0
-            Lighting.EnvironmentSpecularScale = 0
-            Lighting.FogStart = 100000
-            Lighting.FogEnd = 100000
-            Lighting.ClockTime = 14
-            Lighting.Ambient = targetColor
-            Lighting.OutdoorAmbient = targetColor
-            for _, obj in ipairs(Lighting:GetChildren()) do
-                if obj:IsA("Sky") or obj:IsA("Atmosphere") or obj:IsA("Clouds") then
-                    pcall(function() obj:Destroy() end)
-                end
-            end
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character) then
-                    pcall(function()
-                        if not obj:FindFirstAncestorOfClass("Tool") then
-                            for _, child in ipairs(obj:GetChildren()) do
-                                if child:IsA("Decal") or child:IsA("Texture") or child:IsA("SurfaceAppearance") then child:Destroy() end
-                            end
-                            obj.Material = Enum.Material.SmoothPlastic
-                            obj.Reflectance = 0
-                            obj.CastShadow = false
-                            obj.Color = targetColor
-                        end
-                    end)
-                end
-            end
-            textureBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
-            textureBtn.Text = "🗑️ 已統一純色"
-        end
-
-        -- 2. 粒子抹除
-        local function applyParticleMute()
-            isParticleMuted = not isParticleMuted
-            if isParticleMuted then
-                particleBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
-                particleBtn.Text = "✨ 已抹除粒子"
-                for _, obj in ipairs(Workspace:GetDescendants()) do
-                    if obj:IsA("ParticleEmitter") or obj:IsA("Smoke") or obj:IsA("Fire") or obj:IsA("Sparkles") then
-                        if not obj:FindFirstAncestorOfClass("Tool") then
-                            pcall(function() obj.Enabled = false; obj.Texture = "" end)
-                        end
-                    end
-                end
-            else
-                particleBtn.BackgroundColor3 = Color3.fromRGB(120, 80, 150)
-                particleBtn.Text = "✨ 粒子徹底抹除"
-            end
-        end
-
-        -- 3. 補幀
-        local function toggleSmooth()
-            isSmoothEnabled = not isSmoothEnabled
-            if isSmoothEnabled then
-                smoothBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
-                smoothBtn.Text = "✨ 已開啟補幀"
-                local currentCF = Workspace.CurrentCamera.CFrame
-                smoothConn = RunService.RenderStepped:Connect(function()
-                    local camera = Workspace.CurrentCamera
-                    if camera then
-                        currentCF = currentCF:Lerp(camera.CFrame, 0.15)
-                        camera.CFrame = currentCF
-                    end
-                end)
-            else
-                smoothBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 150)
-                smoothBtn.Text = "✨ 畫面平滑補幀"
-                if smoothConn then smoothConn:Disconnect(); smoothConn = nil end
-            end
-        end
-
-        -- 4. 顯示 FPS
-        local function toggleFPS()
-            isFpsShowing = not isFpsShowing
-            if isFpsShowing then
-                fpsBtn.BackgroundColor3 = Color3.fromRGB(30, 150, 80)
-                fpsBtn.Text = "📊 隱藏 FPS"
-                fpsGui = Instance.new("ScreenGui"); fpsGui.Name = PREFIX.."Fps"; fpsGui.ResetOnSpawn = false; fpsGui.IgnoreGuiInset = true; fpsGui.Parent = PlayerGui
-                fpsLabel = Instance.new("TextLabel"); fpsLabel.Size = UDim2.fromOffset(120, 35); fpsLabel.Position = UDim2.new(1, -130, 0, 15); fpsLabel.BackgroundColor3 = Color3.fromRGB(0, 0, 0); fpsLabel.BackgroundTransparency = 0.5; fpsLabel.Text = "FPS: --"; fpsLabel.TextColor3 = Color3.fromRGB(0, 255, 0); fpsLabel.Font = Enum.Font.Code; fpsLabel.TextSize = 18; fpsLabel.Parent = fpsGui
-                local frames, time = 0, 0
-                fpsConn = RunService.RenderStepped:Connect(function(dt)
-                    frames = frames + 1; time = time + dt
-                    if time >= 0.5 then
-                        local fps = math.floor(frames / time + 0.5)
-                        fpsLabel.Text = "FPS: " .. fps
-                        fpsLabel.TextColor3 = fps >= 50 and Color3.fromRGB(0,255,0) or (fps >= 30 and Color3.fromRGB(255,255,0) or Color3.fromRGB(255,50,50))
-                        frames, time = 0, 0
-                    end
-                end)
-            else
-                fpsBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 80)
-                fpsBtn.Text = "📊 顯示 FPS"
-                if fpsConn then fpsConn:Disconnect(); fpsConn = nil end
-                if fpsGui then fpsGui:Destroy(); fpsGui = nil end
-            end
-        end
-
-        -- 5. 玩家純灰
-        local function simplifyPlayer(char)
-            if not char then return end
-            for _, obj in ipairs(char:GetDescendants()) do
-                if obj:IsA("Clothing") or obj:IsA("Accessory") then pcall(function() obj:Destroy() end) end
-                if obj:IsA("BasePart") then
-                    pcall(function()
-                        obj.Color = Color3.fromRGB(150, 150, 150); obj.Material = Enum.Material.SmoothPlastic
-                        for _, child in ipairs(obj:GetChildren()) do if child:IsA("Decal") or child:IsA("Texture") then child:Destroy() end end
-                    end)
-                end
-            end
-        end
-        local function applyPlayerSimplify()
-            isPlayerSimplified = not isPlayerSimplified
-            if isPlayerSimplified then
-                playerBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50); playerBtn.Text = "👤 已純灰"
-                for _, p in ipairs(Players:GetPlayers()) do if p.Character then simplifyPlayer(p.Character) end end
-            else
-                playerBtn.BackgroundColor3 = Color3.fromRGB(100, 100, 100); playerBtn.Text = "👤 玩家優化 (純灰人)"
-            end
-        end
-
-        -- 6. 刪除動畫
-        local function stopAnims(char)
-            if not char then return end
-            local hum = char:FindFirstChildOfClass("Humanoid"); if not hum then return end
-            local animator = hum:FindFirstChildOfClass("Animator"); if not animator then return end
-            for _, track in ipairs(animator:GetPlayingAnimationTracks()) do pcall(function() track:Stop(0) end) end
-            local animate = char:FindFirstChild("Animate"); if animate then pcall(function() animate:Destroy() end) end
-            if animConnections[char] then animConnections[char]:Disconnect() end
-            animConnections[char] = animator.AnimationPlayed:Connect(function(track) if isAnimDeleted then pcall(function() track:Stop(0) end) end end)
-        end
-        local function applyAnimationRemove()
-            isAnimDeleted = not isAnimDeleted
-            if isAnimDeleted then
-                animBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50); animBtn.Text = "🏃 已刪除動畫"
-                for _, p in ipairs(Players:GetPlayers()) do if p.Character then stopAnims(p.Character) end end
-            else
-                animBtn.BackgroundColor3 = Color3.fromRGB(70, 90, 120); animBtn.Text = "🏃 刪除動畫 (全員滑行)"
-            end
-        end
-
-        -- 7. 穩定鎖定 30 幀 (舊機專用)
-        local function toggleLock30()
-            lock30Btn.BackgroundColor3 = Color3.fromRGB(150, 50, 50); lock30Btn.Text = "🔒 已鎖定 30 幀"
-            pcall(function() 
-                setfpscap(30) 
-            end)
-            -- 如果執行器不支援 setfpscap，強制用 Roblox 設定
-            pcall(function()
-                settings().Rendering.QualityLevel = Enum.QualityLevel.Level01
-            end)
-        end
-
-        -- 8. 關閉全圖反光與陰影
-        local function toggleShadowReflect()
-            shadowBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
-            shadowBtn.Text = "💡 已關閉反光與陰影"
-            for _, obj in ipairs(Workspace:GetDescendants()) do
-                if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character) then
-                    pcall(function()
-                        obj.Reflectance = 0
-                        obj.CastShadow = false
-                    end)
-                end
-            end
-            for _, obj in ipairs(Lighting:GetChildren()) do
-                if obj:IsA("ColorCorrectionEffect") or obj:IsA("BloomEffect") or obj:IsA("SunRaysEffect") then
-                    pcall(function() obj.Enabled = false end)
-                end
-            end
-        end
-
-        -- 9. 遠處剔除
-        local function applyCulling()
-            isCullingEnabled = not isCullingEnabled
-            if isCullingEnabled then
-                cullingBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50); cullingBtn.Text = "👁️ 已開啟剔除"
-                local tickRate = 0
-                cullingConn = RunService.Heartbeat:Connect(function(dt)
-                    tickRate = tickRate + dt
-                    if tickRate < 0.5 then return end
-                    tickRate = 0
-                    local cam = Workspace.CurrentCamera; if not cam then return end
-                    for _, obj in ipairs(Workspace:GetChildren()) do
-                        if obj:IsA("BasePart") and not obj:IsDescendantOf(LocalPlayer.Character) then
-                            if (obj.Position - cam.CFrame.Position).Magnitude > 500 then
-                                if obj.LocalTransparencyModifier ~= 1 then obj.LocalTransparencyModifier = 1; hiddenParts[obj] = true end
-                            else
-                                if hiddenParts[obj] then obj.LocalTransparencyModifier = 0; hiddenParts[obj] = nil end
-                            end
-                        end
-                    end
-                end)
-            else
-                cullingBtn.BackgroundColor3 = Color3.fromRGB(50, 100, 130); cullingBtn.Text = "👁️ 遠處剔除 (隱藏500格)"
-                if cullingConn then cullingConn:Disconnect(); cullingConn = nil end
-                for obj, _ in pairs(hiddenParts) do pcall(function() obj.LocalTransparencyModifier = 0 end) end
-                table.clear(hiddenParts)
-            end
-        end
-
-        -- ==================== 綁定事件 ====================
-        textureBtn.Activated:Connect(applyTextureDelete)
-        particleBtn.Activated:Connect(applyParticleMute)
-        smoothBtn.Activated:Connect(toggleSmooth)
-        fpsBtn.Activated:Connect(toggleFPS)
-        playerBtn.Activated:Connect(applyPlayerSimplify)
-        animBtn.Activated:Connect(applyAnimationRemove)
-        lock30Btn.Activated:Connect(toggleLock30)
-        shadowBtn.Activated:Connect(toggleShadowReflect)
-        cullingBtn.Activated:Connect(applyCulling)
-
-        stopBtn.Activated:Connect(function()
-            if isTextureDeleted then pcall(function() settings().Rendering.QualityLevel = savedQuality or Enum.QualityLevel.Automatic end); isTextureDeleted = false end
-            if isSmoothEnabled then toggleSmooth() end
-            local char = LocalPlayer.Character
-            if char and char:FindFirstChildOfClass("Humanoid") then char.Humanoid.Health = 0 end
-        end)
-
-        -- ==================== 自動監聽 ====================
-        local function onCharacterAdded(char)
-            task.wait(1)
-            if isPlayerSimplified then simplifyPlayer(char) end
-            if isAnimDeleted then stopAnims(char) end
-        end
-        for _, p in ipairs(Players:GetPlayers()) do
-            p.CharacterAdded:Connect(onCharacterAdded)
-            if p.Character then task.spawn(function() if isPlayerSimplified then simplifyPlayer(p.Character) end; if isAnimDeleted then stopAnims(p.Character) end end) end
-        end
-        Players.PlayerAdded:Connect(function(p) p.CharacterAdded:Connect(onCharacterAdded) end)
-
-        -- 懸浮球拖曳與點擊
-        orb.Activated:Connect(function() main.Visible = not main.Visible end)
-        local orbDragging, orbMoved = false, false
-        local dragStart, orbStart
-        orb.InputBegan:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-                orbDragging = true; orbMoved = false; dragStart = input.Position; orbStart = orb.Position
-            end
-        end)
-        UIS.InputChanged:Connect(function(input)
-            if orbDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-                local d = input.Position - dragStart
-                if d.Magnitude > 8 then orbMoved = true end
-                orb.Position = UDim2.new(orbStart.X.Scale, orbStart.X.Offset + d.X, orbStart.Y.Scale, orbStart.Y.Offset + d.Y)
-            end
-        end)
-        UIS.InputEnded:Connect(function(input)
-            if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then orbDragging = false end
-        end)
-
-        switchTab(page1, tabBtn1)
-        print("💥 湊企鵝暴力加速器 v17 已載入！(淺灰舊機專用版)")
+        local source = game:HttpGet(HARD_FPS_URL)
+        local run = loadstring(source)
+        if not run then error("loadstring無法編譯遠端FPS腳本") end
+        run()
     end)
     if ok then
+        hardFpsButton.Text = "強力增加FPS：已執行"
         showToast("強力增加FPS已執行")
     else
         hardFpsButton:SetAttribute("Running", false)
