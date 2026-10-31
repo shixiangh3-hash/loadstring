@@ -259,11 +259,11 @@ do
     settingPageButton = createBtn(mainScroll, 285, "畫面設定", Color3.fromRGB(100, 75, 135))
     skyPageButton = createBtn(mainScroll, 335, "天空", Color3.fromRGB(70, 100, 140))
     killSoundPageButton = createBtn(mainScroll, 385, "擊殺音效", Color3.fromRGB(110, 70, 130))
-    perfPageButton = createBtn(mainScroll, 435, "效能監控", Color3.fromRGB(40, 90, 60))
-    otherPageButton = createBtn(mainScroll, 485, "其他功能", Color3.fromRGB(85, 80, 110))
-    musicPageButton = createBtn(mainScroll, 535, "音樂", Color3.fromRGB(80, 100, 150))
-    restoreButton = createBtn(mainScroll, 585, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
-    hardFpsButton = createBtn(mainScroll, 635, "強力增加FPS", Color3.fromRGB(145, 75, 55))
+    hardFpsButton = createBtn(mainScroll, 435, "強力增加FPS", Color3.fromRGB(145, 75, 55))
+    perfPageButton = createBtn(mainScroll, 485, "效能監控", Color3.fromRGB(40, 90, 60))
+    otherPageButton = createBtn(mainScroll, 535, "其他功能", Color3.fromRGB(85, 80, 110))
+    musicPageButton = createBtn(mainScroll, 585, "音樂", Color3.fromRGB(80, 100, 150))
+    restoreButton = createBtn(mainScroll, 635, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 end
 
 -- ==================== 全域狀態 ====================
