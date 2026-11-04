@@ -24,7 +24,7 @@ local CLICK_SOUND = "rbxassetid://6895079853"
 local THUNDER_SOUND = "rbxassetid://131300621"
 local STARTUP_SOUND = "rbxassetid://119974879573475"
 local HARD_FPS_URL = "https://raw.githubusercontent.com/shixiangh3-hash/loadstring/refs/heads/main/%E6%B9%8A%E4%BC%81%E9%B5%9D%E5%BC%B7%E5%8A%9B%E5%A2%9E%E5%8A%A0fps"
-local FULL_SKIN_URL = "https://pastefy.app/wLO5bELQ/raw"
+local FULL_SKIN_URL = "https://raw.githubusercontent.com/shixiangh3-hash/loadstring/refs/heads/main/%E6%B9%8A%E4%BC%81%E9%B5%9D%E5%85%A8%E7%9A%AE"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
 for _, obj in ipairs(PlayerGui:GetChildren()) do
