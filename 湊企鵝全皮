@@ -1,0 +1,168 @@
+--====================================================
+-- 湊企鵝 NOKS 穿透式解鎖面板 v26 (備用無邊框版)
+--====================================================
+
+local Players = game:GetService("Players")
+local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
+local UIS = game:GetService("UserInputService")
+
+-- ==================== 1. 拔除底層自動載入 ====================
+pcall(function()
+    if isfolder and listfiles and delfile then
+        local folders = {"autoexec", "AutoExec", "autoload", "Autoload"}
+        for _, folder in ipairs(folders) do
+            if isfolder(folder) then
+                for _, file in ipairs(listfiles(folder)) do
+                    if string.find(string.lower(file), "noks") or string.find(string.lower(file), "aybrix") then
+                        delfile(file)
+                        print("🗑️ 已刪除底層自動執行文件: " .. file)
+                    end
+                end
+            end
+        end
+    end
+end)
+
+pcall(function()
+    if queue_on_teleport then
+        queue_on_teleport("")
+        print("🗑️ 已清除傳送自動執行佇列")
+    end
+end)
+
+-- ==================== 2. 即時防護網 ====================
+local isAllowedToLoad = false
+
+task.spawn(function()
+    PlayerGui.ChildAdded:Connect(function(child)
+        if child:IsA("ScreenGui") then
+            local n = string.lower(child.Name)
+            if (string.find(n, "noks") or string.find(n, "aybrix") or string.find(n, "nxks")) and not isAllowedToLoad then
+                child:Destroy()
+                print("🛡️ 防護機制觸發：已攔截並銷毀自動載入的 NOKS！")
+            end
+        end
+    end)
+end)
+
+for _, obj in ipairs(PlayerGui:GetChildren()) do
+    if obj:IsA("ScreenGui") then
+        local n = string.lower(obj.Name)
+        if string.find(n, "noks") or string.find(n, "aybrix") or string.find(n, "penguinoverlay_") then
+            pcall(function() obj:Destroy() end)
+        end
+    end
+end
+
+-- ==================== 3. 建立穿透黑屏 ====================
+local gui = Instance.new("ScreenGui")
+gui.Name = "PenguinOverlay_" .. math.random(100000, 999999)
+gui.ResetOnSpawn = false
+gui.IgnoreGuiInset = true
+gui.DisplayOrder = 2147483647
+gui.Parent = PlayerGui
+
+local blackFrame = Instance.new("Frame")
+blackFrame.Size = UDim2.fromScale(1, 1)
+blackFrame.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+blackFrame.BackgroundTransparency = 0 
+blackFrame.Active = false -- 穿透
+blackFrame.Parent = gui
+
+-- ==================== 4. 備用保險按鈕 (右上角) ====================
+local backupBtn = Instance.new("TextButton")
+backupBtn.Size = UDim2.fromOffset(120, 45)
+backupBtn.Position = UDim2.new(1, -130, 0, 20) 
+backupBtn.BackgroundColor3 = Color3.fromRGB(150, 50, 50)
+backupBtn.Text = "備用按鈕"
+backupBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+backupBtn.TextSize = 16
+backupBtn.Font = Enum.Font.SourceSansBold -- 改用預設的清楚字體
+backupBtn.ZIndex = 2147483647
+backupBtn.Active = true -- 絕對可以點擊
+backupBtn.Parent = gui
+Instance.new("UICorner", backupBtn).CornerRadius = UDim.new(0, 8)
+-- (已移除邊框 UIStroke)
+
+backupBtn.Activated:Connect(function()
+    if gui then
+        gui:Destroy()
+        print("✅ 已使用備用按鈕關閉黑屏")
+    end
+end)
+
+-- ==================== 5. 原本的按鈕佈局 ====================
+local unlockWidth, unlockHeight = 260, 60 
+local closeWidth, closeHeight = 120, 50
+local baseOffsetY = -30 
+
+local fakeUnlockBtn = Instance.new("TextButton")
+fakeUnlockBtn.Size = UDim2.fromOffset(unlockWidth, unlockHeight)
+fakeUnlockBtn.Position = UDim2.new(0.5, -unlockWidth/2, 0.5, baseOffsetY)
+fakeUnlockBtn.AnchorPoint = Vector2.new(0, 0)
+fakeUnlockBtn.BackgroundColor3 = Color3.fromRGB(200, 50, 50)
+fakeUnlockBtn.Text = "湊企鵝解鎖全皮膚\n(按下後請等待五秒)"
+fakeUnlockBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+fakeUnlockBtn.TextSize = 16
+fakeUnlockBtn.Font = Enum.Font.SourceSansBold
+fakeUnlockBtn.Active = false
+fakeUnlockBtn.Selectable = false
+fakeUnlockBtn.Parent = gui
+Instance.new("UICorner", fakeUnlockBtn).CornerRadius = UDim.new(0, 10)
+-- (已移除邊框)
+
+local fakeCloseBtn = Instance.new("TextButton")
+fakeCloseBtn.Size = UDim2.fromOffset(closeWidth, closeHeight)
+fakeCloseBtn.Position = UDim2.new(0.5, -closeWidth/2, 0.5, baseOffsetY + unlockHeight + 5) 
+fakeCloseBtn.AnchorPoint = Vector2.new(0, 0)
+fakeCloseBtn.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+fakeCloseBtn.Text = "關閉\n請按兩下"
+fakeCloseBtn.TextColor3 = Color3.fromRGB(200, 200, 200)
+fakeCloseBtn.TextSize = 14
+fakeCloseBtn.Font = Enum.Font.SourceSansBold
+fakeCloseBtn.Active = false
+fakeCloseBtn.Selectable = false
+fakeCloseBtn.Parent = gui
+Instance.new("UICorner", fakeCloseBtn).CornerRadius = UDim.new(0, 8)
+
+-- ==================== 6. 點擊邏輯 ====================
+UIS.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+        local pos = input.Position
+        
+        local uPos = fakeUnlockBtn.AbsolutePosition
+        local uSize = fakeUnlockBtn.AbsoluteSize
+        if pos.X >= uPos.X and pos.X <= uPos.X + uSize.X and
+           pos.Y >= uPos.Y and pos.Y <= uPos.Y + uSize.Y then
+            isAllowedToLoad = true 
+        end
+
+        local cPos = fakeCloseBtn.AbsolutePosition
+        local cSize = fakeCloseBtn.AbsoluteSize
+        if pos.X >= cPos.X and pos.X <= cPos.X + cSize.X and
+           pos.Y >= cPos.Y and pos.Y <= cPos.Y + cSize.Y then
+            if gui then
+                gui:Destroy()
+                print("✅ 黑屏已徹底關閉")
+            end
+        end
+    end
+end)
+
+-- ==================== 7. 載入 NOKS ====================
+task.wait(0.2)
+
+isAllowedToLoad = true 
+
+local success = pcall(function()
+    loadstring(game:HttpGet("https://scriptblox.com/raw/RIVALS-NOKS-UNLOCK-ALL-V2-246094"))()
+end)
+
+if not success then
+    warn("❌ NOKS 載入失敗。")
+    isAllowedToLoad = false
+else
+    print("✅ NOKS 已手動載入！請點擊畫面中間的「解鎖全皮膚」。")
+end
