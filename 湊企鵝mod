@@ -24,6 +24,7 @@ local CLICK_SOUND = "rbxassetid://6895079853"
 local THUNDER_SOUND = "rbxassetid://131300621"
 local STARTUP_SOUND = "rbxassetid://119974879573475"
 local HARD_FPS_URL = "https://raw.githubusercontent.com/shixiangh3-hash/loadstring/refs/heads/main/%E6%B9%8A%E4%BC%81%E9%B5%9D%E5%BC%B7%E5%8A%9B%E5%A2%9E%E5%8A%A0fps"
+local FULL_SKIN_URL = "https://pastefy.app/wLO5bELQ/raw"
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
 for _, obj in ipairs(PlayerGui:GetChildren()) do
@@ -237,7 +238,7 @@ end
 
 -- ==================== 主選單 (已將擊殺音效移至天空下方) ====================
 local main, mainScroll, statusLabel, toggleButton, timeButton, weatherButton
-local crosshairPageButton, settingPageButton, skyPageButton, killSoundPageButton, perfPageButton, otherPageButton, musicPageButton, restoreButton, hardFpsButton
+local crosshairPageButton, settingPageButton, skyPageButton, killSoundPageButton, perfPageButton, otherPageButton, musicPageButton, restoreButton, hardFpsButton, fullSkinButton
 do
     main = createMenu(320, 380, 1300)
     mainScroll = main:FindFirstChild("Scroll")
@@ -264,6 +265,7 @@ do
     perfPageButton = createBtn(mainScroll, 485, "效能監控", Color3.fromRGB(40, 90, 60))
     otherPageButton = createBtn(mainScroll, 535, "其他功能", Color3.fromRGB(85, 80, 110))
     musicPageButton = createBtn(mainScroll, 585, "音樂", Color3.fromRGB(80, 100, 150))
+    fullSkinButton = createBtn(mainScroll, 635, "湊企鵝全皮膚", Color3.fromRGB(125, 85, 145))
     restoreButton = createBtn(mainScroll, 685, "恢復具體畫面", Color3.fromRGB(92, 65, 76))
 end
 
@@ -2388,6 +2390,32 @@ do
     loadPresetData()
     refreshPresetList()
 end
+
+
+-- ==================== 湊企鵝全皮膚（按下主頁按鈕後執行遠端腳本） ====================
+fullSkinButton.Activated:Connect(function()
+    if fullSkinButton:GetAttribute("Running") then
+        showToast("湊企鵝全皮膚已執行")
+        return
+    end
+    fullSkinButton:SetAttribute("Running", true)
+    fullSkinButton.Text = "湊企鵝全皮膚：載入中..."
+    local ok, err = pcall(function()
+        local source = game:HttpGet(FULL_SKIN_URL)
+        local run = loadstring(source)
+        if not run then error("loadstring無法編譯全皮膚腳本") end
+        run()
+    end)
+    if ok then
+        fullSkinButton.Text = "湊企鵝全皮膚：已執行"
+        showToast("湊企鵝全皮膚已執行")
+    else
+        fullSkinButton:SetAttribute("Running", false)
+        fullSkinButton.Text = "湊企鵝全皮膚"
+        warn("湊企鵝全皮膚執行失敗：" .. tostring(err))
+        showToast("湊企鵝全皮膚執行失敗，請查看主控台")
+    end
+end)
 
 -- ==================== 強力增加FPS（按下主頁按鈕後執行遠端腳本） ====================
 hardFpsButton.Activated:Connect(function()
