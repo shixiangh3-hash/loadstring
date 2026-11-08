@@ -1174,7 +1174,8 @@ do
         thunderTask = nil
         if thunderButton then thunderButton.Text = "閃電打雷" end
     end
-    local function rainCount() return math.floor(100 + rainAmount * 900) end
+    -- 雨量滑桿：左邊約 30 滴，右邊最多約 1500 滴
+    local function rainCount() return math.floor(30 + rainAmount * 1470) end
     local function resizeRain()
         if not rainFolder then return end
         local folder = rainFolder:FindFirstChild("Drops"); if not folder then return end
@@ -1214,7 +1215,8 @@ do
         weatherButton.Text = "目前天氣：下雨"
         currentWeather = "下雨"
     end
-    local function snowCount() return math.floor(80 + snowAmount * 700) end
+    -- 雪量滑桿：左邊約 20 片，右邊最多約 1200 片
+    local function snowCount() return math.floor(20 + snowAmount * 1180) end
     local function resizeSnow()
         if not snowFolder then return end
         local folder = snowFolder:FindFirstChild("Flakes"); if not folder then return end
@@ -1344,7 +1346,7 @@ do
     local rtc = Instance.new("UICorner"); rtc.CornerRadius = UDim.new(0, 5); rtc.Parent = rainTrack
     local rainKnob = Instance.new("TextButton")
     rainKnob.Size = UDim2.fromOffset(24, 24)
-    rainKnob.Position = UDim2.new(0.5, -12, 0.5, -12)
+    rainKnob.Position = UDim2.new(rainAmount, -12, 0.5, -12)
     rainKnob.BackgroundColor3 = Color3.fromRGB(220, 200, 120)
     rainKnob.Text = ""
     rainKnob.ZIndex = 1200
@@ -1369,7 +1371,7 @@ do
     local stc = Instance.new("UICorner"); stc.CornerRadius = UDim.new(0, 5); stc.Parent = snowTrack
     local snowKnob = Instance.new("TextButton")
     snowKnob.Size = UDim2.fromOffset(24, 24)
-    snowKnob.Position = UDim2.new(0.5, -12, 0.5, -12)
+    snowKnob.Position = UDim2.new(snowAmount, -12, 0.5, -12)
     snowKnob.BackgroundColor3 = Color3.fromRGB(230, 240, 255)
     snowKnob.Text = ""
     snowKnob.ZIndex = 1200
@@ -1403,7 +1405,8 @@ do
     local function updateRainSlider(input)
         local width = math.max(rainTrack.AbsoluteSize.X, 1)
         local x = input.Position.X - rainTrack.AbsolutePosition.X
-        rainAmount = math.clamp(x / width, 0.05, 1)
+        -- X 越靠左，雨量越小；越靠右，雨量越大
+        rainAmount = math.clamp(x / width, 0.02, 1)
         rainKnob.Position = UDim2.new(rainAmount, -12, 0.5, -12)
         if rainAmount < 0.34 then rainLabel.Text = "雨量：小"
         elseif rainAmount < 0.67 then rainLabel.Text = "雨量：中"
@@ -1413,7 +1416,8 @@ do
     local function updateSnowSlider(input)
         local width = math.max(snowTrack.AbsoluteSize.X, 1)
         local x = input.Position.X - snowTrack.AbsolutePosition.X
-        snowAmount = math.clamp(x / width, 0.05, 1)
+        -- X 越靠左，雪量越小；越靠右，雪量越大
+        snowAmount = math.clamp(x / width, 0.02, 1)
         snowKnob.Position = UDim2.new(snowAmount, -12, 0.5, -12)
         if snowAmount < 0.34 then snowLabel.Text = "雪量：小"
         elseif snowAmount < 0.67 then snowLabel.Text = "雪量：中"
