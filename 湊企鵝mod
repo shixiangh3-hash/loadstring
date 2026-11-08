@@ -564,7 +564,18 @@ do
         },
         { name = "Nyan Cat", sameId = "rbxassetid://50767914" },
         { name = "Spongebob", sameId = "rbxassetid://92663158118274" },
-        { name = "Matrix", sameId = "rbxassetid://191546360" }
+        { name = "Matrix", sameId = "rbxassetid://191546360" },
+        {
+            name = "和栗薰子",
+            faces = {
+                Up = "rbxassetid://132711967550566",   -- 上
+                Dn = "rbxassetid://115812201688294",   -- 下
+                Lf = "rbxassetid://73765120213551",    -- 左
+                Rt = "rbxassetid://74335932931472",    -- 右
+                Ft = "rbxassetid://107707952902864",   -- 前
+                Bk = "rbxassetid://83177945461088"     -- 後
+            }
+        }
     }
 
     local SKY_NAME = "SkyTest_Current"
