@@ -1342,6 +1342,7 @@ do
     rainTrack.Position = UDim2.fromOffset(20, 317)
     rainTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
     rainTrack.ZIndex = 1100
+    rainTrack.Active = true
     rainTrack.Parent = weatherScroll
     local rtc = Instance.new("UICorner"); rtc.CornerRadius = UDim.new(0, 5); rtc.Parent = rainTrack
     local rainKnob = Instance.new("TextButton")
@@ -1367,6 +1368,7 @@ do
     snowTrack.Position = UDim2.fromOffset(20, 365)
     snowTrack.BackgroundColor3 = Color3.fromRGB(120, 140, 170)
     snowTrack.ZIndex = 1100
+    snowTrack.Active = true
     snowTrack.Parent = weatherScroll
     local stc = Instance.new("UICorner"); stc.CornerRadius = UDim.new(0, 5); stc.Parent = snowTrack
     local snowKnob = Instance.new("TextButton")
@@ -1443,6 +1445,27 @@ do
     UIS.InputChanged:Connect(function(input)
         if rainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateRainSlider(input) end
         if snowDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then updateSnowSlider(input) end
+    end)
+    -- 直接監聽滑軌本身，避免手機拖曳時只滾動頁面而沒有更新數值
+    rainTrack.InputChanged:Connect(function(input)
+        if rainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateRainSlider(input)
+        end
+    end)
+    rainKnob.InputChanged:Connect(function(input)
+        if rainDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateRainSlider(input)
+        end
+    end)
+    snowTrack.InputChanged:Connect(function(input)
+        if snowDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateSnowSlider(input)
+        end
+    end)
+    snowKnob.InputChanged:Connect(function(input)
+        if snowDragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+            updateSnowSlider(input)
+        end
     end)
     UIS.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
