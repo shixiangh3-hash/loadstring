@@ -575,6 +575,17 @@ do
                 Ft = "rbxassetid://107707952902864",   -- 前
                 Bk = "rbxassetid://83177945461088"     -- 後
             }
+        },
+        {
+            name = "艾莉同學（和栗薰子）",
+            faces = {
+                Up = "rbxassetid://95118435793328",    -- 上
+                Dn = "rbxassetid://99684349920858",    -- 下
+                Lf = "rbxassetid://95046210650708",    -- 左
+                Rt = "rbxassetid://117227067044100",   -- 右
+                Ft = "rbxassetid://91657063214797",    -- 前
+                Bk = "rbxassetid://119987361797380"    -- 後
+            }
         }
     }
 
@@ -1337,10 +1348,13 @@ do
     rainLabel.Font = Enum.Font.GothamBold
     rainLabel.ZIndex = 1100
     rainLabel.Parent = weatherScroll
-    local rainTrack = Instance.new("Frame")
+    local rainTrack = Instance.new("TextButton")
     rainTrack.Size = UDim2.new(1, -40, 0, 8)
     rainTrack.Position = UDim2.fromOffset(20, 317)
     rainTrack.BackgroundColor3 = Color3.fromRGB(80, 90, 110)
+    rainTrack.Text = ""
+    rainTrack.AutoButtonColor = false
+    rainTrack.Selectable = false
     rainTrack.ZIndex = 1100
     rainTrack.Active = true
     rainTrack.Parent = weatherScroll
@@ -1363,10 +1377,13 @@ do
     snowLabel.Font = Enum.Font.GothamBold
     snowLabel.ZIndex = 1100
     snowLabel.Parent = weatherScroll
-    local snowTrack = Instance.new("Frame")
+    local snowTrack = Instance.new("TextButton")
     snowTrack.Size = UDim2.new(1, -40, 0, 8)
     snowTrack.Position = UDim2.fromOffset(20, 365)
     snowTrack.BackgroundColor3 = Color3.fromRGB(120, 140, 170)
+    snowTrack.Text = ""
+    snowTrack.AutoButtonColor = false
+    snowTrack.Selectable = false
     snowTrack.ZIndex = 1100
     snowTrack.Active = true
     snowTrack.Parent = weatherScroll
@@ -2257,7 +2274,9 @@ local function applySnapshot(data)
             { name = "夜空", faces = { Bk = "rbxassetid://2503254921", Dn = "rbxassetid://2503255146", Ft = "rbxassetid://2503255274", Lf = "rbxassetid://2503255403", Rt = "rbxassetid://2503255557", Up = "rbxassetid://2503255747" }, isDark = true },
             { name = "Nyan Cat", sameId = "rbxassetid://50767914" },
             { name = "Spongebob", sameId = "rbxassetid://92663158118274" },
-            { name = "Matrix", sameId = "rbxassetid://191546360" }
+            { name = "Matrix", sameId = "rbxassetid://191546360" },
+            { name = "和栗薰子", faces = { Bk = "rbxassetid://83177945461088", Dn = "rbxassetid://115812201688294", Ft = "rbxassetid://107707952902864", Lf = "rbxassetid://73765120213551", Rt = "rbxassetid://74335932931472", Up = "rbxassetid://132711967550566" } },
+            { name = "艾莉同學（和栗薰子）", faces = { Bk = "rbxassetid://119987361797380", Dn = "rbxassetid://99684349920858", Ft = "rbxassetid://91657063214797", Lf = "rbxassetid://95046210650708", Rt = "rbxassetid://117227067044100", Up = "rbxassetid://95118435793328" } }
         }
         for _, p in ipairs(skyPresets) do
             if p.name == data.skyName then
