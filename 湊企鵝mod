@@ -577,7 +577,7 @@ do
             }
         },
         {
-            name = "艾莉同學（和栗薰子）",
+            name = "艾莉同學",
             faces = {
                 Up = "rbxassetid://95118435793328",    -- 上
                 Dn = "rbxassetid://99684349920858",    -- 下
@@ -2276,7 +2276,7 @@ local function applySnapshot(data)
             { name = "Spongebob", sameId = "rbxassetid://92663158118274" },
             { name = "Matrix", sameId = "rbxassetid://191546360" },
             { name = "和栗薰子", faces = { Bk = "rbxassetid://83177945461088", Dn = "rbxassetid://115812201688294", Ft = "rbxassetid://107707952902864", Lf = "rbxassetid://73765120213551", Rt = "rbxassetid://74335932931472", Up = "rbxassetid://132711967550566" } },
-            { name = "艾莉同學（和栗薰子）", faces = { Bk = "rbxassetid://119987361797380", Dn = "rbxassetid://99684349920858", Ft = "rbxassetid://91657063214797", Lf = "rbxassetid://95046210650708", Rt = "rbxassetid://117227067044100", Up = "rbxassetid://95118435793328" } }
+            { name = "艾莉同學", faces = { Bk = "rbxassetid://119987361797380", Dn = "rbxassetid://99684349920858", Ft = "rbxassetid://91657063214797", Lf = "rbxassetid://95046210650708", Rt = "rbxassetid://117227067044100", Up = "rbxassetid://95118435793328" } }
         }
         for _, p in ipairs(skyPresets) do
             if p.name == data.skyName then
